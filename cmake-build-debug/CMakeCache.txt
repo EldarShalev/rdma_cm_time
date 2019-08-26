@@ -14,6 +14,12 @@
 # EXTERNAL cache entries
 ########################
 
+//Location for ibacm provider plugin shared library files.
+ACM_PROVIDER_DIR:PATH=/usr/local/lib64/ibacm
+
+//Build with support for Remote DMA protocols
+BUILD_RDMA:BOOL=OFF
+
 //Path to a program.
 CMAKE_AR:FILEPATH=/bin/ar
 
@@ -34,6 +40,9 @@ CMAKE_CODEBLOCKS_MAKE_ARGUMENTS:STRING=-j4
 
 //Enable/Disable color output during build.
 CMAKE_COLOR_MAKEFILE:BOOL=ON
+
+//Default flags for Release configuration
+CMAKE_CXX_FLAGS_RELEASE:STRING=
 
 //C compiler
 CMAKE_C_COMPILER:FILEPATH=/bin/cc
@@ -79,8 +88,75 @@ CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 //Enable/Disable output of compile commands during generation.
 CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=OFF
 
+//User executables (bin)
+CMAKE_INSTALL_BINDIR:PATH=bin
+
+//Read-only architecture-independent data (DATAROOTDIR)
+CMAKE_INSTALL_DATADIR:PATH=
+
+//Read-only architecture-independent data root (share)
+CMAKE_INSTALL_DATAROOTDIR:PATH=share
+
+//Documentation root (DATAROOTDIR/doc/PROJECT_NAME)
+CMAKE_INSTALL_DOCDIR:PATH=
+
+//C header files (include)
+CMAKE_INSTALL_INCLUDEDIR:PATH=include
+
+//Info documentation (DATAROOTDIR/info)
+CMAKE_INSTALL_INFODIR:PATH=
+
+//Location for init.d files
+CMAKE_INSTALL_INITDDIR:PATH=etc/init.d
+
+//Object code libraries (lib64)
+CMAKE_INSTALL_LIBDIR:PATH=lib64
+
+//Program executables (libexec)
+CMAKE_INSTALL_LIBEXECDIR:PATH=libexec
+
+//Locale-dependent data (DATAROOTDIR/locale)
+CMAKE_INSTALL_LOCALEDIR:PATH=
+
+//Modifiable single-machine data (var)
+CMAKE_INSTALL_LOCALSTATEDIR:PATH=var
+
+//Man documentation (DATAROOTDIR/man)
+CMAKE_INSTALL_MANDIR:PATH=
+
+//C header files for non-gcc (/usr/include)
+CMAKE_INSTALL_OLDINCLUDEDIR:PATH=/usr/include
+
+//Location for system perl library, typically /usr/share/perl5
+CMAKE_INSTALL_PERLDIR:PATH=share/perl5
+
 //Install path prefix, prepended onto install directories.
 CMAKE_INSTALL_PREFIX:PATH=/usr/local
+
+//Location for runtime information, typically /var/run, or /run
+CMAKE_INSTALL_RUNDIR:PATH=var/run
+
+//Run-time variable data (LOCALSTATEDIR/run)
+CMAKE_INSTALL_RUNSTATEDIR:PATH=
+
+//System admin executables (sbin)
+CMAKE_INSTALL_SBINDIR:PATH=sbin
+
+//Modifiable architecture-independent data (com)
+CMAKE_INSTALL_SHAREDSTATEDIR:PATH=com
+
+//Read-only single-machine data (etc)
+CMAKE_INSTALL_SYSCONFDIR:PATH=etc
+
+//Location for systemd extra binaries
+CMAKE_INSTALL_SYSTEMD_BINDIR:PATH=/lib/systemd
+
+//Location for systemd service files
+CMAKE_INSTALL_SYSTEMD_SERVICEDIR:PATH=/usr/local/lib/systemd/system
+
+//Location for system udev rules, typically /lib/udev/rules.d or
+// /usr/lib/udev/rules.d
+CMAKE_INSTALL_UDEV_RULESDIR:PATH=lib/udev/rules.d
 
 //Path to a program.
 CMAKE_LINKER:FILEPATH=/bin/ld
@@ -185,11 +261,79 @@ CMAKE_STRIP:FILEPATH=/bin/strip
 // Studio IDE projects all commands are done without /nologo.
 CMAKE_VERBOSE_MAKEFILE:BOOL=FALSE
 
+//Flavour of distribution to install for. This primarily impacts
+// the init.d scripts installed.
+DISTRO_FLAVOUR:STRING=None
+
+//Produce static linking libraries as well as shared libraries.
+ENABLE_STATIC:BOOL=OFF
+
+//Path to a file.
+GLEW_INCLUDE_DIR:PATH=GLEW_INCLUDE_DIR-NOTFOUND
+
+//Path to a library.
+GLEW_LIBRARY_DEBUG:FILEPATH=GLEW_LIBRARY_DEBUG-NOTFOUND
+
+//Path to a library.
+GLEW_LIBRARY_RELEASE:FILEPATH=GLEW_LIBRARY_RELEASE-NOTFOUND
+
+//Path to a file.
+OPENGL_EGL_INCLUDE_DIR:PATH=OPENGL_EGL_INCLUDE_DIR-NOTFOUND
+
+//Path to a file.
+OPENGL_GLX_INCLUDE_DIR:PATH=/usr/include
+
+//Path to a file.
+OPENGL_INCLUDE_DIR:PATH=/usr/include
+
+//Path to a library.
+OPENGL_egl_LIBRARY:FILEPATH=/usr/lib64/libEGL.so
+
+//Path to a library.
+OPENGL_glu_LIBRARY:FILEPATH=/usr/lib64/libGLU.so
+
+//Path to a library.
+OPENGL_glx_LIBRARY:FILEPATH=/usr/lib64/libGLX.so
+
+//Path to a library.
+OPENGL_opengl_LIBRARY:FILEPATH=/usr/lib64/libOpenGL.so
+
+//Path to a file.
+OPENGL_xmesa_INCLUDE_DIR:PATH=OPENGL_xmesa_INCLUDE_DIR-NOTFOUND
+
+//Path to a program.
+PYTHON_EXECUTABLE:FILEPATH=/usr/bin/python3
+
 //Path to a program.
 ProcessorCount_cmd_getconf:FILEPATH=/bin/getconf
 
 //Path to a program.
 ProcessorCount_cmd_sysctl:FILEPATH=/usr/sbin/sysctl
+
+//Location for provider plugin shared library files. If set to
+// empty the system search path is used.
+VERBS_PROVIDER_DIR:PATH=/usr/local/lib64/libibverbs
+
+//Path to a file.
+a:PATH=/bin
+
+//The directory containing a CMake configuration file for cython.
+cython_DIR:PATH=cython_DIR-NOTFOUND
+
+//Path to a library.
+ianfiniband:FILEPATH=ianfiniband-NOTFOUND
+
+//Path to a library.
+iasdfsafnfiniband:FILEPATH=iasdfsafnfiniband-NOTFOUND
+
+//The directory containing a CMake configuration file for infin.
+infin_DIR:PATH=infin_DIR-NOTFOUND
+
+//Path to a library.
+infiniband:PATH=infiniband-NOTFOUND
+
+//The directory containing a CMake configuration file for infiniband.
+infiniband_DIR:PATH=infiniband_DIR-NOTFOUND
 
 //Value Computed by CMake
 rdma_cm_time_BINARY_DIR:STATIC=/labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug
@@ -267,8 +411,40 @@ CMAKE_GENERATOR_TOOLSET:INTERNAL=
 //Source directory with the top level CMakeLists.txt file for this
 // project
 CMAKE_HOME_DIRECTORY:INTERNAL=/labhome/eldarsh/workspace/rdma_cm_time
+//ADVANCED property for variable: CMAKE_INSTALL_BINDIR
+CMAKE_INSTALL_BINDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_DATADIR
+CMAKE_INSTALL_DATADIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_DATAROOTDIR
+CMAKE_INSTALL_DATAROOTDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_DOCDIR
+CMAKE_INSTALL_DOCDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_INCLUDEDIR
+CMAKE_INSTALL_INCLUDEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_INFODIR
+CMAKE_INSTALL_INFODIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_LIBDIR
+CMAKE_INSTALL_LIBDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_LIBEXECDIR
+CMAKE_INSTALL_LIBEXECDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_LOCALEDIR
+CMAKE_INSTALL_LOCALEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_LOCALSTATEDIR
+CMAKE_INSTALL_LOCALSTATEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_MANDIR
+CMAKE_INSTALL_MANDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_OLDINCLUDEDIR
+CMAKE_INSTALL_OLDINCLUDEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_RUNSTATEDIR
+CMAKE_INSTALL_RUNSTATEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_SBINDIR
+CMAKE_INSTALL_SBINDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_SHAREDSTATEDIR
+CMAKE_INSTALL_SHAREDSTATEDIR-ADVANCED:INTERNAL=1
 //Install .so files without execute permission.
 CMAKE_INSTALL_SO_NO_EXE:INTERNAL=0
+//ADVANCED property for variable: CMAKE_INSTALL_SYSCONFDIR
+CMAKE_INSTALL_SYSCONFDIR-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_LINKER
 CMAKE_LINKER-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_MAKE_PROGRAM
@@ -327,8 +503,72 @@ CMAKE_STRIP-ADVANCED:INTERNAL=1
 CMAKE_UNAME:INTERNAL=/bin/uname
 //ADVANCED property for variable: CMAKE_VERBOSE_MAKEFILE
 CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
+//Details about finding OpenGL
+FIND_PACKAGE_MESSAGE_DETAILS_OpenGL:INTERNAL=[/usr/lib64/libOpenGL.so][/usr/lib64/libGLX.so][/usr/include][c ][v()]
+//ADVANCED property for variable: GLEW_LIBRARY_DEBUG
+GLEW_LIBRARY_DEBUG-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: GLEW_LIBRARY_RELEASE
+GLEW_LIBRARY_RELEASE-ADVANCED:INTERNAL=1
+//Test HAS_CLOEXEC
+HAS_CLOEXEC:INTERNAL=1
+//Test HAVE_C_WORKING_MISSING_FIELD_INITIALIZERS
+HAVE_C_WORKING_MISSING_FIELD_INITIALIZERS:INTERNAL=1
+//Test HAVE_C_WORKING_SHADOW
+HAVE_C_WORKING_SHADOW:INTERNAL=1
+//Test HAVE_FUNC_ATTRIBUTE_ALWAYS_INLINE
+HAVE_FUNC_ATTRIBUTE_ALWAYS_INLINE:INTERNAL=1
+//Test HAVE_FUNC_ATTRIBUTE_IFUNC
+HAVE_FUNC_ATTRIBUTE_IFUNC:INTERNAL=1
+//Test HAVE_GLIBC_UAPI_COMPAT
+HAVE_GLIBC_UAPI_COMPAT:INTERNAL=
+//Test HAVE_LARGE_FILES
+HAVE_LARGE_FILES:INTERNAL=1
+//Test HAVE_LONG_LONG_U64
+HAVE_LONG_LONG_U64:INTERNAL=1
+//Test HAVE_NO_SPARSE
+HAVE_NO_SPARSE:INTERNAL=1
+//Test HAVE_NO_STRICT_ALIASING
+HAVE_NO_STRICT_ALIASING:INTERNAL=1
+//Test HAVE_NO_VAR_TRACKING_ASSIGNMENTS
+HAVE_NO_VAR_TRACKING_ASSIGNMENTS:INTERNAL=1
+//Have include stdatomic.h
+HAVE_STDATOMIC:INTERNAL=
+//Test HAVE_TARGET_SSE
+HAVE_TARGET_SSE:INTERNAL=1
+//Test HAVE_WORKING_STRICT_ALIASING
+HAVE_WORKING_STRICT_ALIASING:INTERNAL=1
+//ADVANCED property for variable: OPENGL_EGL_INCLUDE_DIR
+OPENGL_EGL_INCLUDE_DIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: OPENGL_GLX_INCLUDE_DIR
+OPENGL_GLX_INCLUDE_DIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: OPENGL_INCLUDE_DIR
+OPENGL_INCLUDE_DIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: OPENGL_egl_LIBRARY
+OPENGL_egl_LIBRARY-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: OPENGL_glu_LIBRARY
+OPENGL_glu_LIBRARY-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: OPENGL_glx_LIBRARY
+OPENGL_glx_LIBRARY-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: OPENGL_opengl_LIBRARY
+OPENGL_opengl_LIBRARY-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: OPENGL_xmesa_INCLUDE_DIR
+OPENGL_xmesa_INCLUDE_DIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: PYTHON_EXECUTABLE
+PYTHON_EXECUTABLE-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: ProcessorCount_cmd_getconf
 ProcessorCount_cmd_getconf-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: ProcessorCount_cmd_sysctl
 ProcessorCount_cmd_sysctl-ADVANCED:INTERNAL=1
+//Doc
+RDMA_PROVIDER_LIST:INTERNAL=
+//Doc
+RDMA_STATIC_LIBS:INTERNAL=
+//Test SUPPORTS_AS_NEEDED
+SUPPORTS_AS_NEEDED:INTERNAL=1
+//Test SUPPORTS_NO_UNDEFINED
+SUPPORTS_NO_UNDEFINED:INTERNAL=1
+//CMAKE_INSTALL_PREFIX during last run
+_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/usr/local
+//Test _LDSYMVER_SUCCESS
+_LDSYMVER_SUCCESS:INTERNAL=
 

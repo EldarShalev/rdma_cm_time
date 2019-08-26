@@ -150,6 +150,60 @@ main.c.s:
 	$(MAKE) -f CMakeFiles/rdma_cm_time.dir/build.make CMakeFiles/rdma_cm_time.dir/main.c.s
 .PHONY : main.c.s
 
+queue.o: queue.c.o
+
+.PHONY : queue.o
+
+# target to build an object file
+queue.c.o:
+	$(MAKE) -f CMakeFiles/rdma_cm_time.dir/build.make CMakeFiles/rdma_cm_time.dir/queue.c.o
+.PHONY : queue.c.o
+
+queue.i: queue.c.i
+
+.PHONY : queue.i
+
+# target to preprocess a source file
+queue.c.i:
+	$(MAKE) -f CMakeFiles/rdma_cm_time.dir/build.make CMakeFiles/rdma_cm_time.dir/queue.c.i
+.PHONY : queue.c.i
+
+queue.s: queue.c.s
+
+.PHONY : queue.s
+
+# target to generate assembly for a file
+queue.c.s:
+	$(MAKE) -f CMakeFiles/rdma_cm_time.dir/build.make CMakeFiles/rdma_cm_time.dir/queue.c.s
+.PHONY : queue.c.s
+
+queue_internal.o: queue_internal.c.o
+
+.PHONY : queue_internal.o
+
+# target to build an object file
+queue_internal.c.o:
+	$(MAKE) -f CMakeFiles/rdma_cm_time.dir/build.make CMakeFiles/rdma_cm_time.dir/queue_internal.c.o
+.PHONY : queue_internal.c.o
+
+queue_internal.i: queue_internal.c.i
+
+.PHONY : queue_internal.i
+
+# target to preprocess a source file
+queue_internal.c.i:
+	$(MAKE) -f CMakeFiles/rdma_cm_time.dir/build.make CMakeFiles/rdma_cm_time.dir/queue_internal.c.i
+.PHONY : queue_internal.c.i
+
+queue_internal.s: queue_internal.c.s
+
+.PHONY : queue_internal.s
+
+# target to generate assembly for a file
+queue_internal.c.s:
+	$(MAKE) -f CMakeFiles/rdma_cm_time.dir/build.make CMakeFiles/rdma_cm_time.dir/queue_internal.c.s
+.PHONY : queue_internal.c.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -162,6 +216,12 @@ help:
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
+	@echo "... queue.o"
+	@echo "... queue.i"
+	@echo "... queue.s"
+	@echo "... queue_internal.o"
+	@echo "... queue_internal.i"
+	@echo "... queue_internal.s"
 .PHONY : help
 
 

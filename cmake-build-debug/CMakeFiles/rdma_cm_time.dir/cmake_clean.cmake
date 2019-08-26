@@ -1,5 +1,7 @@
 file(REMOVE_RECURSE
   "CMakeFiles/rdma_cm_time.dir/main.c.o"
+  "CMakeFiles/rdma_cm_time.dir/queue.c.o"
+  "CMakeFiles/rdma_cm_time.dir/queue_internal.c.o"
   "rdma_cm_time.pdb"
   "rdma_cm_time"
 )

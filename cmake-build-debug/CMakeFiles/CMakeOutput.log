@@ -246,3 +246,286 @@ gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time
     Feature record: C_FEATURE:0c_restrict
     Feature record: C_FEATURE:0c_static_assert
     Feature record: C_FEATURE:0c_variadic_macros
+Performing C SOURCE FILE Test HAVE_NO_SPARSE succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_c1ce4/fast 
+/bin/gmake -f CMakeFiles/cmTC_c1ce4.dir/build.make CMakeFiles/cmTC_c1ce4.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_c1ce4.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -DHAVE_NO_SPARSE   -std=gnu11 -o CMakeFiles/cmTC_c1ce4.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_c1ce4
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_c1ce4.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -DHAVE_NO_SPARSE    CMakeFiles/cmTC_c1ce4.dir/src.c.o  -o cmTC_c1ce4 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+#if __CHECKER__
+#warning "SPARSE DETECTED"
+#endif
+int main(int argc,const char *argv[]) {return 0;}
+
+Performing C SOURCE FILE Test HAVE_C_WORKING_SHADOW succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_efbb8/fast 
+/bin/gmake -f CMakeFiles/cmTC_efbb8.dir/build.make CMakeFiles/cmTC_efbb8.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_efbb8.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -DHAVE_C_WORKING_SHADOW -Wshadow   -std=gnu11 -o CMakeFiles/cmTC_efbb8.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_efbb8
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_efbb8.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -DHAVE_C_WORKING_SHADOW -Wshadow    CMakeFiles/cmTC_efbb8.dir/src.c.o  -o cmTC_efbb8 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+ #include <unistd.h>
+ int main(int argc,const char *argv[]) { int access = 1; return access; }
+Performing C SOURCE FILE Test HAVE_C_WORKING_MISSING_FIELD_INITIALIZERS succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_b4617/fast 
+/bin/gmake -f CMakeFiles/cmTC_b4617.dir/build.make CMakeFiles/cmTC_b4617.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_b4617.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAVE_C_WORKING_MISSING_FIELD_INITIALIZERS   -std=gnu11 -o CMakeFiles/cmTC_b4617.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_b4617
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_b4617.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAVE_C_WORKING_MISSING_FIELD_INITIALIZERS    CMakeFiles/cmTC_b4617.dir/src.c.o  -o cmTC_b4617 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+ struct foo { int a; int b; };
+ int main(int argc,const char *argv[]) { struct foo tmp = {}; return tmp.a; }
+Performing C SOURCE FILE Test HAVE_NO_STRICT_ALIASING succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_bbeb5/fast 
+/bin/gmake -f CMakeFiles/cmTC_bbeb5.dir/build.make CMakeFiles/cmTC_bbeb5.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_bbeb5.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAVE_NO_STRICT_ALIASING   -fno-strict-aliasing -std=gnu11 -o CMakeFiles/cmTC_bbeb5.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_bbeb5
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_bbeb5.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAVE_NO_STRICT_ALIASING    CMakeFiles/cmTC_bbeb5.dir/src.c.o  -o cmTC_bbeb5 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+int main(void) { return 0; }
+Performing C SOURCE FILE Test HAVE_NO_VAR_TRACKING_ASSIGNMENTS succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_09025/fast 
+/bin/gmake -f CMakeFiles/cmTC_09025.dir/build.make CMakeFiles/cmTC_09025.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_09025.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAVE_NO_VAR_TRACKING_ASSIGNMENTS   -fno-var-tracking-assignments -std=gnu11 -o CMakeFiles/cmTC_09025.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_09025
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_09025.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAVE_NO_VAR_TRACKING_ASSIGNMENTS    CMakeFiles/cmTC_09025.dir/src.c.o  -o cmTC_09025 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+int main(void) { return 0; }
+Performing C SOURCE FILE Test HAVE_FUNC_ATTRIBUTE_IFUNC succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_d7c09/fast 
+/bin/gmake -f CMakeFiles/cmTC_d7c09.dir/build.make CMakeFiles/cmTC_d7c09.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_d7c09.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAVE_FUNC_ATTRIBUTE_IFUNC   -std=gnu11 -o CMakeFiles/cmTC_d7c09.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_d7c09
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_d7c09.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAVE_FUNC_ATTRIBUTE_IFUNC    CMakeFiles/cmTC_d7c09.dir/src.c.o  -o cmTC_d7c09 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+ #include <unistd.h>
+
+ void entry(void);
+
+ static void do_entry(void) {}
+ void entry(void) __attribute__((ifunc("resolve_entry")));
+ typedef void (*fn_t)(void);
+ static fn_t resolve_entry(void) {return &do_entry;}
+
+ int main(int argc,const char *argv[]) { entry(); }
+Performing C SOURCE FILE Test HAS_CLOEXEC succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_86fc5/fast 
+/bin/gmake -f CMakeFiles/cmTC_86fc5.dir/build.make CMakeFiles/cmTC_86fc5.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_86fc5.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAS_CLOEXEC   -std=gnu11 -o CMakeFiles/cmTC_86fc5.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_86fc5
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_86fc5.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAS_CLOEXEC    CMakeFiles/cmTC_86fc5.dir/src.c.o  -o cmTC_86fc5 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <sys/socket.h>
+ #include <fcntl.h>
+ int main(int argc,const char *argv[]) {
+    open(".",O_RDONLY | O_CLOEXEC);
+    socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    return 0;
+ }
+Performing C SOURCE FILE Test HAVE_FUNC_ATTRIBUTE_ALWAYS_INLINE succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_e0fe6/fast 
+/bin/gmake -f CMakeFiles/cmTC_e0fe6.dir/build.make CMakeFiles/cmTC_e0fe6.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_e0fe6.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAVE_FUNC_ATTRIBUTE_ALWAYS_INLINE   -std=gnu11 -o CMakeFiles/cmTC_e0fe6.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_e0fe6
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_e0fe6.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAVE_FUNC_ATTRIBUTE_ALWAYS_INLINE    CMakeFiles/cmTC_e0fe6.dir/src.c.o  -o cmTC_e0fe6 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+ int foo(void);
+ inline __attribute__((always_inline)) int foo(void) {return 0;}
+ int main(int argc,const char *argv[]) { return foo(); }
+Performing C SOURCE FILE Test HAVE_LONG_LONG_U64 succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_723ae/fast 
+/bin/gmake -f CMakeFiles/cmTC_723ae.dir/build.make CMakeFiles/cmTC_723ae.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_723ae.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAVE_LONG_LONG_U64   -std=gnu11 -o CMakeFiles/cmTC_723ae.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_723ae
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_723ae.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAVE_LONG_LONG_U64    CMakeFiles/cmTC_723ae.dir/src.c.o  -o cmTC_723ae 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+#include <linux/types.h>
+ int main(int argc,const char *argv[]) { __u64 tmp = 0; unsigned long long *tmp2 = &tmp; return *tmp2; }
+Performing C SOURCE FILE Test HAVE_WORKING_STRICT_ALIASING succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_f8a2c/fast 
+/bin/gmake -f CMakeFiles/cmTC_f8a2c.dir/build.make CMakeFiles/cmTC_f8a2c.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_f8a2c.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -O2 -DHAVE_WORKING_STRICT_ALIASING   -std=gnu11 -o CMakeFiles/cmTC_f8a2c.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_f8a2c
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_f8a2c.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -O2 -DHAVE_WORKING_STRICT_ALIASING    CMakeFiles/cmTC_f8a2c.dir/src.c.o  -o cmTC_f8a2c 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+struct in6_addr {unsigned int u6_addr32[4];};
+struct iphdr {unsigned int daddr;};
+union ibv_gid {unsigned char raw[16];};
+
+static void map_ipv4_addr_to_ipv6(struct in6_addr *ipv6) {ipv6->u6_addr32[0] = 0;}
+static int set_ah_attr_by_ipv4(struct iphdr *ip4h)
+{
+	union ibv_gid sgid = {};
+	map_ipv4_addr_to_ipv6((struct in6_addr *)&sgid);
+	return 0;
+}
+
+int main(int argc, char *argv[])
+{
+	struct in6_addr a;
+	struct iphdr h = {};
+	map_ipv4_addr_to_ipv6(&a);
+	return set_ah_attr_by_ipv4(&h);
+}
+Performing C SOURCE FILE Test HAVE_LARGE_FILES succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_84644/fast 
+/bin/gmake -f CMakeFiles/cmTC_84644.dir/build.make CMakeFiles/cmTC_84644.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_84644.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAVE_LARGE_FILES   -std=gnu11 -o CMakeFiles/cmTC_84644.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_84644
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_84644.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAVE_LARGE_FILES    CMakeFiles/cmTC_84644.dir/src.c.o  -o cmTC_84644 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+#include <sys/types.h>
+ #define BUILD_ASSERT_OR_ZERO(cond) (sizeof(char [1 - 2*!(cond)]) - 1)
+ int main(int argc,const char *argv[]) { return BUILD_ASSERT_OR_ZERO(sizeof(off_t) >= 8); }
+Performing C SOURCE FILE Test HAVE_TARGET_SSE succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_fa922/fast 
+/bin/gmake -f CMakeFiles/cmTC_fa922.dir/build.make CMakeFiles/cmTC_fa922.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_fa922.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DHAVE_TARGET_SSE   -std=gnu11 -o CMakeFiles/cmTC_fa922.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_fa922
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_fa922.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DHAVE_TARGET_SSE    CMakeFiles/cmTC_fa922.dir/src.c.o  -o cmTC_fa922 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+
+#if defined(__i386__)
+#include <string.h>
+#include <xmmintrin.h>
+int __attribute__((target("sse"))) main(int argc, char *argv[])
+{
+	__m128 tmp = {};
+
+	tmp = _mm_loadl_pi(tmp, (__m64 *)&main);
+	_mm_storel_pi((__m64 *)&main, tmp);
+	return memchr(&tmp, 0, sizeof(tmp)) == &tmp;
+}
+#else
+int main(int argc, char *argv[])
+{
+	return 0;
+}
+#endif
+
+Performing C SOURCE FILE Test SUPPORTS_AS_NEEDED succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_e2310/fast 
+/bin/gmake -f CMakeFiles/cmTC_e2310.dir/build.make CMakeFiles/cmTC_e2310.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_e2310.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DSUPPORTS_AS_NEEDED   -std=gnu11 -o CMakeFiles/cmTC_e2310.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_e2310
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_e2310.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DSUPPORTS_AS_NEEDED   -Wl,--as-needed  CMakeFiles/cmTC_e2310.dir/src.c.o  -o cmTC_e2310 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+int main(void) { return 0; }
+Performing C SOURCE FILE Test SUPPORTS_NO_UNDEFINED succeeded with the following output:
+Change Dir: /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/bin/gmake cmTC_39942/fast 
+/bin/gmake -f CMakeFiles/cmTC_39942.dir/build.make CMakeFiles/cmTC_39942.dir/build
+gmake[1]: Entering directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_39942.dir/src.c.o
+/bin/cc   -libverbs -lpthread   -Wshadow -DSUPPORTS_NO_UNDEFINED   -std=gnu11 -o CMakeFiles/cmTC_39942.dir/src.c.o   -c /labhome/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp/src.c
+Linking C executable cmTC_39942
+/labhome/eldarsh/workspace/clion-2019.2/bin/cmake/linux/bin/cmake -E cmake_link_script CMakeFiles/cmTC_39942.dir/link.txt --verbose=1
+/bin/cc  -libverbs -lpthread   -Wshadow -DSUPPORTS_NO_UNDEFINED   -Wl,--as-needed -Wl,--no-undefined  CMakeFiles/cmTC_39942.dir/src.c.o  -o cmTC_39942 
+gmake[1]: Leaving directory `/.autodirect/swgwork/eldarsh/workspace/rdma_cm_time/cmake-build-debug/CMakeFiles/CMakeTmp'
+
+Source file was:
+int main(void) { return 0; }
