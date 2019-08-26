@@ -411,8 +411,6 @@ static void *resolving_addresses(void *arg) {
     int i=0;
 
     while (i < connections) {
-        // ret = rdma_resolve_addr
-
         if (nodes[i].error)
             continue;
         nodes[i].retries = retries;
