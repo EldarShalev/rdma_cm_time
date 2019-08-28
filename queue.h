@@ -254,7 +254,7 @@ int8_t queue_get_filtered(queue_t *q, void **e, int (*cmp)(void *, void *), void
 int8_t queue_set_new_data(queue_t *q, uint8_t v);
 
 /**
-  * returns wether the queue will accept new data
+  * returns whether the queue will accept new data
   * also returns 0, if there was an error
   *
   * q - the queue

@@ -89,6 +89,12 @@
 		<Unit filename="/labhome/eldarsh/workspace/rdma_cm_time/queue_internal.h">
 			<Option target="rdma_cm_time"/>
 		</Unit>
+		<Unit filename="/labhome/eldarsh/workspace/rdma_cm_time/threadpool.c">
+			<Option target="rdma_cm_time"/>
+		</Unit>
+		<Unit filename="/labhome/eldarsh/workspace/rdma_cm_time/threadpool.h">
+			<Option target="rdma_cm_time"/>
+		</Unit>
 		<Unit filename="/labhome/eldarsh/workspace/rdma_cm_time/CMakeLists.txt">
 			<Option virtualFolder="CMake Files\"/>
 		</Unit>

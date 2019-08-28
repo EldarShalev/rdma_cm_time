@@ -14,8 +14,10 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <pthread.h>
 #include "queue_internal.h"
 #include <rdma/rdma_cma.h>
+#include "threadpool.h"
 
 static struct rdma_addrinfo hints;
 static struct rdma_addrinfo *rai;
@@ -26,7 +28,7 @@ static char *dst_addr;
 static char *src_addr;
 static int timeout = 2000;
 static int retries = 2;
-
+static int num_of_threads=1;
 
 enum step {
     STEP_CREATE_ID,
@@ -75,7 +77,17 @@ struct work_list {
 static struct work_list req_work;
 static struct work_list disc_work;
 static struct node *nodes;
-static struct queue_element_s *queue;
+
+
+// Structs for each queue
+static struct queue_s *resolve_route_queue;
+static struct queue_s *qp_creation_queue;
+static struct queue_s *connection_queue;
+static struct queue_s *disconnection_queue;
+pthread_mutex_t lock;
+
+
+
 static struct timeval times[STEP_CNT][2];
 static int connections = 10000;
 static volatile int started[STEP_CNT];
@@ -337,19 +349,20 @@ static void cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
 static int alloc_nodes(void)
 {
     int ret, i;
-
+    if (pthread_mutex_init(&lock, NULL) != 0)
+    {
+        printf("\n mutex init has failed\n");
+        return 1;
+    }
     nodes = calloc(sizeof *nodes, connections);
     if (!nodes)
         return -ENOMEM;
 
+    resolve_route_queue=queue_create();
+    qp_creation_queue=queue_create();
+    connection_queue=queue_create();
+    disconnection_queue=queue_create();
 
-    //resolve_addr_buf=calloc(sizeof *resolve_addr_buf,connections);
-//    resolve_route_noeds=malloc(sizeof(*nodes)*connections);
-//    if (!resolve_route_noeds)
-//        return -ENOMEM;
-//    for (i=0;i<connections;i++){
-//        resolve_route_noeds[i]=malloc(sizeof(nodes));
-//    }
     printf("creating id\n");
     start_time(STEP_CREATE_ID);
     for (i = 0; i < connections; i++) {
@@ -375,7 +388,12 @@ static int alloc_nodes(void)
 
 static void cleanup_nodes(void)
 {
+    pthread_mutex_destroy(&lock);
     int i;
+    queue_destroy(resolve_route_queue);
+    queue_destroy(qp_creation_queue);
+    queue_destroy(connection_queue);
+    queue_destroy(disconnection_queue);
 
     printf("destroying id\n");
     start_time(STEP_DESTROY);
@@ -406,7 +424,8 @@ static void *process_events(void *arg)
 }
 
 static void *resolving_addresses(void *arg) {
-    printf("resolving address Thread has started \n");
+    printf("Thread \"resolving address\" has started \n");
+    start_time(STEP_RESOLVE_ADDR);
     int ret = 0;
     int i=0;
 
@@ -415,24 +434,197 @@ static void *resolving_addresses(void *arg) {
             continue;
         nodes[i].retries = retries;
         start_perf(&nodes[i], STEP_RESOLVE_ADDR);
+
+        //#printf("trying to resolve address for id %d\n" ,nodes[i].id);
         ret = rdma_resolve_addr(nodes[i].id, rai->ai_src_addr,
                                     rai->ai_dst_addr, timeout);
         if (ret) {
-            perror("failure getting addr");
+            perror("failure getting addr\n");
             nodes[i].error = 1;
             continue;
         }
-        // PUT INTO QUEUE
-        // fifo_put_to_resolve_route(node[i])
+        nodes[i].retries = retries;
+        queue_put(resolve_route_queue,&nodes[i]);
+        //#printf("address was put into resolve_route_queue! id: %d\n",nodes[i].id);
         started[STEP_RESOLVE_ADDR]++;
         i++;
-        while (started[STEP_RESOLVE_ADDR] != completed[STEP_RESOLVE_ADDR]) sched_yield();
-        end_time(STEP_RESOLVE_ADDR);
+
 
     }
+    while (started[STEP_RESOLVE_ADDR] != completed[STEP_RESOLVE_ADDR]) sched_yield();
+    end_time(STEP_RESOLVE_ADDR);
     return NULL;
 
 }
+
+static void *resolving_route(void *arg) {
+    sleep(1);
+    printf("Thread \"resolving route\" has started \n");
+    start_time(STEP_RESOLVE_ROUTE);
+    int ret = 0;
+    int j=0;
+    struct node *current= calloc(sizeof *nodes, 1);
+    while (j < connections) {
+        ret=queue_get_wait(resolve_route_queue,(void **)&current);
+        if (ret) {
+            perror("failure get from resolve route queue\n");
+            nodes[j].error = 1;
+            continue;
+        }
+        //#printf("resolve_address was dequeue from resolve_route_queue!\n");
+        nodes[j]=*current;
+        if (nodes[j].error)
+            continue;
+        nodes[j].retries = retries;
+        start_perf(&nodes[j], STEP_RESOLVE_ROUTE);
+        //$printf("trying to resolve route for id %d\n", nodes[j].id);
+
+        ret = rdma_resolve_route(nodes[j].id, timeout);
+        if (ret) {
+            perror("failure resolving route");
+            nodes[j].error = 1;
+            continue;
+        }
+        queue_put(qp_creation_queue,&nodes[j]);
+        started[STEP_RESOLVE_ROUTE]++;
+        j++;
+
+    }
+    while (started[STEP_RESOLVE_ROUTE] != completed[STEP_RESOLVE_ROUTE]) sched_yield();
+    end_time(STEP_RESOLVE_ROUTE);
+    // TODO free here
+    //free(current);
+    return NULL;
+
+}
+
+static void *qp_creation(void *arg) {
+
+    sleep(1);
+    start_time(STEP_CREATE_QP);
+    printf("Thread \"qp creation\" has started \n");
+    int ret = 0;
+    int j=0;
+    struct node *current= calloc(sizeof *nodes, 1);
+    while (j < connections) {
+        ret=queue_get_wait(qp_creation_queue,(void **)&current);
+        if (ret) {
+            perror("failure get element from qp creation queue\n");
+            nodes[j].error = 1;
+            continue;
+        }
+        //#printf("route was dequeue from qp_creation queue!\n");
+        nodes[j]=*current;
+        if (nodes[j].error)
+            continue;
+        start_perf(&nodes[j], STEP_CREATE_QP);
+        //$printf("trying to create_qp for id %d\n", nodes[j].id);
+        ret = rdma_create_qp(nodes[j].id, NULL, &init_qp_attr);
+        if (ret) {
+            perror("failure creating qp");
+            nodes[j].error = 1;
+            continue;
+        }
+        queue_put(connection_queue,&nodes[j]);
+        j++;
+        // TODO understand why the end_perf here (Same as original cmtime)
+        end_perf(&nodes[j], STEP_CREATE_QP);
+
+    }
+
+    end_time(STEP_CREATE_QP);
+    //TODO free current...
+    //free(current);
+    return NULL;
+}
+
+static void *connection(void *arg) {
+    sleep(1);
+    printf("Thread \"connection\" has started \n");
+    start_time(STEP_CONNECT);
+    int ret = 0;
+    int j=0;
+    struct node *current= calloc(sizeof *nodes, 1);
+    while (j < connections) {
+        ret=queue_get_wait(connection_queue,(void **)&current);
+        if (ret) {
+            perror("failure get element from connection_queue\n");
+            nodes[j].error = 1;
+            continue;
+        }
+        //#printf("qp was dequeue from connection_queue!\n");
+        nodes[j]=*current;
+        if (nodes[j].error)
+            continue;
+        start_perf(&nodes[j], STEP_CONNECT);
+        //#printf("trying to connect for id %d\n", nodes[j].id);
+        ret = rdma_connect(nodes[j].id, &conn_param);
+        if (ret) {
+            perror("failure connecting");
+            nodes[j].error = 1;
+            continue;
+        }
+        started[STEP_CONNECT]++;
+        // TODO understand this
+        // RACE HERE
+        // wait for event connection rdma_get_cm_event
+        // callback from server rdma_ack_cm_event
+
+
+
+        queue_put(disconnection_queue,&nodes[j]);
+        j++;
+
+    }
+    while (started[STEP_CONNECT] != completed[STEP_CONNECT]){
+        sched_yield();
+    }
+    end_time(STEP_CONNECT);
+    // TODO free here
+    //free(current);
+    return NULL;
+}
+
+static void *disconnection(void *arg) {
+    sleep(1);
+    printf("Thread \"disconnection\" has started \n");
+    start_time(STEP_DISCONNECT);
+    int ret = 0;
+    int j=0;
+    struct node *current= calloc(sizeof *nodes, 1);
+    while (j < connections) {
+        ret=queue_get_wait(disconnection_queue,(void **)&current);
+        if (ret) {
+            perror("failure get element from disconnection_queue\n");
+            nodes[j].error = 1;
+            continue;
+        }
+        //#printf("connection was dequeue from disconnection_queue!\n");
+        nodes[j]=*current;
+        if (nodes[j].error)
+            continue;
+        start_perf(&nodes[j], STEP_DISCONNECT);
+        //#printf("trying to disconnect for id %d\n", nodes[j].id);
+        //sleep(1);
+        pthread_mutex_lock(&lock);
+        rdma_disconnect(nodes[j].id);
+        rdma_destroy_qp(nodes[j].id);
+        pthread_mutex_unlock(&lock);
+        started[STEP_DISCONNECT]++;
+        j++;
+
+    }
+
+    while (started[STEP_DISCONNECT] != completed[STEP_DISCONNECT]) {
+        sched_yield();
+    }
+    end_time(STEP_DISCONNECT);
+    // TODO free here
+    //free(current);
+    return NULL;
+
+}
+
 
 int get_rdma_addr(char *src, char *dst, char *port,
                   struct rdma_addrinfo *hints, struct rdma_addrinfo **rai)
@@ -537,125 +729,7 @@ static int run_server(void)
 }
 
 
-static int run_client(void)
-{
-    pthread_t event_thread;
-    int i, ret;
 
-    ret = get_rdma_addr(src_addr, dst_addr, port, &hints, &rai);
-    if (ret) {
-        perror("getaddrinfo error");
-        return ret;
-    }
-
-    conn_param.responder_resources = 1;
-    conn_param.initiator_depth = 1;
-    conn_param.retry_count = retries;
-    conn_param.private_data = rai->ai_connect;
-    conn_param.private_data_len = rai->ai_connect_len;
-
-    ret = pthread_create(&event_thread, NULL, process_events, NULL);
-    if (ret) {
-        perror("failure creating event thread");
-        return ret;
-    }
-    if (src_addr) {
-        printf("binding source address\n");
-        start_time(STEP_BIND);
-        for (i = 0; i < connections; i++) {
-            start_perf(&nodes[i], STEP_BIND);
-            ret = rdma_bind_addr(nodes[i].id, rai->ai_src_addr);
-            if (ret) {
-                perror("failure bind addr");
-                nodes[i].error = 1;
-                continue;
-            }
-            end_perf(&nodes[i], STEP_BIND);
-        }
-        end_time(STEP_BIND);
-    }
-    printf("resolving address\n");
-    start_time(STEP_RESOLVE_ADDR);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-        nodes[i].retries = retries;
-        start_perf(&nodes[i], STEP_RESOLVE_ADDR);
-        ret = rdma_resolve_addr(nodes[i].id, rai->ai_src_addr,
-                                rai->ai_dst_addr, timeout);
-        if (ret) {
-            perror("failure getting addr");
-            nodes[i].error = 1;
-            continue;
-        }
-        started[STEP_RESOLVE_ADDR]++;
-    }
-    while (started[STEP_RESOLVE_ADDR] != completed[STEP_RESOLVE_ADDR]) sched_yield();
-    end_time(STEP_RESOLVE_ADDR);
-
-    printf("resolving route\n");
-    start_time(STEP_RESOLVE_ROUTE);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-        nodes[i].retries = retries;
-        start_perf(&nodes[i], STEP_RESOLVE_ROUTE);
-        ret = rdma_resolve_route(nodes[i].id, timeout);
-        if (ret) {
-            perror("failure resolving route");
-            nodes[i].error = 1;
-            continue;
-        }
-        started[STEP_RESOLVE_ROUTE]++;
-    }
-    while (started[STEP_RESOLVE_ROUTE] != completed[STEP_RESOLVE_ROUTE]) sched_yield();
-    end_time(STEP_RESOLVE_ROUTE);
-
-    printf("creating qp\n");
-    start_time(STEP_CREATE_QP);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-        start_perf(&nodes[i], STEP_CREATE_QP);
-        ret = rdma_create_qp(nodes[i].id, NULL, &init_qp_attr);
-        if (ret) {
-            perror("failure creating qp");
-            nodes[i].error = 1;
-            continue;
-        }
-        end_perf(&nodes[i], STEP_CREATE_QP);
-    }
-    end_time(STEP_CREATE_QP);
-    printf("connecting\n");
-    start_time(STEP_CONNECT);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-        start_perf(&nodes[i], STEP_CONNECT);
-        ret = rdma_connect(nodes[i].id, &conn_param);
-        if (ret) {
-            perror("failure rconnecting");
-            nodes[i].error = 1;
-            continue;
-        }
-        started[STEP_CONNECT]++;
-    }
-    while (started[STEP_CONNECT] != completed[STEP_CONNECT]) sched_yield();
-    end_time(STEP_CONNECT);
-
-    printf("disconnecting\n");
-    start_time(STEP_DISCONNECT);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-        start_perf(&nodes[i], STEP_DISCONNECT);
-        rdma_disconnect(nodes[i].id);
-        started[STEP_DISCONNECT]++;
-    }
-    while (started[STEP_DISCONNECT] != completed[STEP_DISCONNECT]) sched_yield();
-    end_time(STEP_DISCONNECT);
-    return ret;
-}
 
 int Run_Threads(){
     pthread_t event_thread;
@@ -681,7 +755,6 @@ int Run_Threads(){
     conn_param.private_data_len = rai->ai_connect_len;
 
 
-    // Threads for events
     ret = pthread_create(&event_thread, NULL, process_events, NULL);
     if (ret) {
         perror("failure creating event thread");
@@ -704,22 +777,60 @@ int Run_Threads(){
         end_time(STEP_BIND);
     }
 
-    start_time(STEP_RESOLVE_ADDR);
     ret=pthread_create(&resolving_addr_thread,NULL,resolving_addresses,NULL);
     if (ret) {
         perror("failure resolving address");
         return ret;
     }
+    ret=pthread_create(&resolving_route_thread,NULL,resolving_route,NULL);
+    if (ret) {
+        perror("failure resolving route thread");
+        return ret;
+    }
+
+    ret=pthread_create(&create_qp_thread,NULL,qp_creation,NULL);
+    if (ret) {
+        perror("failure creating qp thread");
+        return ret;
+    }
+
+    ret=pthread_create(&connecting_thread,NULL,connection,NULL);
+    if (ret) {
+        perror("failure creating connection thread");
+        return ret;
+    }
+
+
+
+
+
+    pthread_join(resolving_addr_thread,NULL);
+    printf("Thread \"resolve_address has\" has finished\n");
+    pthread_join(resolving_route_thread,NULL);
+    printf("Thread \"resolve_route\" has finished\n");
+    pthread_join(create_qp_thread,NULL);
+    printf("Thread \"create qp\" has finished\n");
+    pthread_join(connecting_thread,NULL);
+    printf("Thread \"connection\" has finished\n");
+    ret=pthread_create(&disconnecting_thread,NULL,disconnection,NULL);
+    if (ret) {
+        perror("failure creating disconnecting thread");
+        return ret;
+    }
+    pthread_join(disconnecting_thread,NULL);
+    printf("Thread \"disconnection\" has finished\n");
+
+    return 1;
 
 }
 
 int main(int argc, char **argv) {
 
     int op, ret;
-
+    threadpool_t *pool;
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
-    while ((op = getopt(argc, argv, "s:b:c:p:r:t:")) != -1) {
+    while ((op = getopt(argc, argv, "s:b:c:p:r:t:n:")) != -1) {
         switch (op) {
             case 's':
                 dst_addr = optarg;
@@ -730,7 +841,6 @@ int main(int argc, char **argv) {
             case 'c':
                 connections = atoi(optarg);
                 break;
-                break;
             case 'p':
                 port = optarg;
                 break;
@@ -740,13 +850,18 @@ int main(int argc, char **argv) {
             case 't':
                 timeout = atoi(optarg);
                 break;
+            case 'n':
+                num_of_threads=atof(optarg);
+
             default:
                 printf("usage: %s\n", argv[0]);
                 printf("\t[-s server_address]\n");
                 printf("\t[-b bind_address]\n");
                 printf("\t[-c connections]\n");
                 printf("\t[-p port_number]\n");
+                printf("\t[-r num of retries]\n");
                 printf("\t[-t timeout_ms]\n");
+                printf("\t[-n num_of_threads]\n");
                 exit(1);
         }
     }
@@ -764,7 +879,6 @@ int main(int argc, char **argv) {
 
     if (dst_addr) {
         alloc_nodes();
-        ret = run_client();
         ret=Run_Threads();
     } else {
         hints.ai_flags |= RAI_PASSIVE;
