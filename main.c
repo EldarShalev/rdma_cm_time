@@ -28,10 +28,10 @@ static char *dst_addr;
 static char *src_addr;
 static int timeout = 2000;
 static int retries = 2;
-threadpool_t *pool;
+threadpool thpool;
 static int num_of_threads=1;
 pthread_mutex_t tp_lock;
-int tasks = 0, done = 0;
+
 
 enum step {
     STEP_CREATE_ID,
@@ -392,21 +392,28 @@ static int alloc_nodes(void)
 static void cleanup_nodes(void)
 {
     pthread_mutex_destroy(&lock);
+    //pthread_mutex_destroy(&tp_lock);
     int i;
     queue_destroy(resolve_route_queue);
     queue_destroy(qp_creation_queue);
     queue_destroy(connection_queue);
     queue_destroy(disconnection_queue);
+    printf("Working threads: %d\n", thpool_num_threads_working(thpool));
+    thpool_destroy(thpool);
 
     printf("destroying id\n");
+
     start_time(STEP_DESTROY);
     for (i = 0; i < connections; i++) {
         start_perf(&nodes[i], STEP_DESTROY);
+        // TODO bug seems like a thread issue.....
+        printf("BUG: %d\n", i);
         if (nodes[i].id)
             rdma_destroy_id(nodes[i].id);
         end_perf(&nodes[i], STEP_DESTROY);
     }
     end_time(STEP_DESTROY);
+
 }
 
 static void *process_events(void *arg)
@@ -560,7 +567,7 @@ static void *connection(void *arg) {
         if (nodes[j].error)
             continue;
         start_perf(&nodes[j], STEP_CONNECT);
-        //$printf("trying to connect for id %d\n", nodes[j].id);
+        //#printf("trying to connect for id %d\n", nodes[j].id);
         ret = rdma_connect(nodes[j].id, &conn_param);
         if (ret) {
             perror("failure connecting");
@@ -568,12 +575,10 @@ static void *connection(void *arg) {
             continue;
         }
         started[STEP_CONNECT]++;
-        // TODO understand this
-        // RACE HERE
-        // wait for event connection rdma_get_cm_event
-        // callback from server rdma_ack_cm_event
-
-
+        // TODO RACE IF DISCONNECT
+        // for disconnect need first:
+        // 1) wait for event connection rdma_get_cm_event
+        // 2) callback from server rdma_ack_cm_event
 
         queue_put(disconnection_queue,&nodes[j]);
         j++;
@@ -589,41 +594,40 @@ static void *connection(void *arg) {
 }
 
 static void *disconnection(void *arg) {
-    printf("Thread \"disconnection\" has started \n");
-    start_time(STEP_DISCONNECT);
+    //printf("Thread \"disconnection\" has started \n");
+    //start_time(STEP_DISCONNECT);
     int ret = 0;
     int j=0;
     struct node *current= calloc(sizeof *nodes, 1);
-    while (j < connections) {
-        ret=queue_get_wait(disconnection_queue,(void **)&current);
-        if (ret) {
-            perror("failure get element from disconnection_queue\n");
-            nodes[j].error = 1;
-            continue;
-        }
-        //#printf("connection was dequeue from disconnection_queue!\n");
-        nodes[j]=*current;
-        if (nodes[j].error)
-            continue;
-        start_perf(&nodes[j], STEP_DISCONNECT);
-        //#printf("trying to disconnect for id %d\n", nodes[j].id);
-        //sleep(1);
-        pthread_mutex_lock(&lock);
-        rdma_disconnect(nodes[j].id);
-        rdma_destroy_qp(nodes[j].id);
-        pthread_mutex_unlock(&lock);
-        started[STEP_DISCONNECT]++;
-        j++;
-
+    ret=queue_get_wait(disconnection_queue,(void **)&current);
+    if (ret) {
+        perror("failure get element from disconnection_queue\n");
+        nodes[j].error = 1;
+        return NULL;
     }
+    //#printf("connection was dequeue from disconnection_queue!\n");
+    pthread_mutex_lock(&tp_lock);
+    nodes[j]=*current;
 
-    while (started[STEP_DISCONNECT] != completed[STEP_DISCONNECT]) {
-        sched_yield();
-    }
-    end_time(STEP_DISCONNECT);
-    // TODO free here
-    //free(current);
-    return NULL;
+    if (nodes[j].error)
+        return NULL;
+    start_perf(&nodes[j], STEP_DISCONNECT);
+    //#printf("trying to disconnect for id %d\n", nodes[j].id);
+    rdma_disconnect(nodes[j].id);
+    rdma_destroy_qp(nodes[j].id);
+    pthread_mutex_unlock(&tp_lock);
+    //started[STEP_DISCONNECT]++;
+    //j++;
+
+
+
+//    while (started[STEP_DISCONNECT] != completed[STEP_DISCONNECT]) {
+//        sched_yield();
+//    }
+//    end_time(STEP_DISCONNECT);
+//    // TODO free here
+//    //free(current);
+    //return NULL;
 
 }
 
@@ -784,6 +788,7 @@ int Run_Threads(){
         perror("failure resolving address");
         return ret;
     }
+
     ret=pthread_create(&resolving_route_thread,NULL,resolving_route,NULL);
     if (ret) {
         perror("failure resolving route thread");
@@ -804,8 +809,6 @@ int Run_Threads(){
 
 
 
-
-
     pthread_join(resolving_addr_thread,NULL);
     printf("Thread \"resolve_address has\" has finished\n");
     pthread_join(resolving_route_thread,NULL);
@@ -814,13 +817,29 @@ int Run_Threads(){
     printf("Thread \"create qp\" has finished\n");
     pthread_join(connecting_thread,NULL);
     printf("Thread \"connection\" has finished\n");
-    ret=pthread_create(&disconnecting_thread,NULL,disconnection,NULL);
-    if (ret) {
-        perror("failure creating disconnecting thread");
-        return ret;
+
+
+
+    int j;
+    for (j=0;j<connections;j++){
+        thpool_add_work(thpool,(void*)&disconnection,NULL);
     }
-    pthread_join(disconnecting_thread,NULL);
+
+    thpool_wait(thpool);
     printf("Thread \"disconnection\" has finished\n");
+    // Destroy our threadpool
+
+
+
+
+
+
+//    if (ret) {
+//        perror("failure creating disconnecting thread");
+//        return ret;
+//    }
+    //pthread_join(disconnecting_thread,NULL);
+    //printf("Thread \"disconnection\" has finished\n");
 
     return 1;
 
@@ -829,6 +848,7 @@ int Run_Threads(){
 int main(int argc, char **argv) {
 
     int op, ret;
+
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
     while ((op = getopt(argc, argv, "s:b:c:p:r:t:n:")) != -1) {
@@ -853,6 +873,7 @@ int main(int argc, char **argv) {
                 break;
             case 'n':
                 num_of_threads=atof(optarg);
+                break;
 
             default:
                 printf("usage: %s\n", argv[0]);
@@ -878,6 +899,11 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
+    if (num_of_threads){
+        pthread_mutex_init(&tp_lock, NULL);
+        thpool = thpool_init(num_of_threads);
+    }
+
     if (dst_addr) {
         alloc_nodes();
         ret=Run_Threads();
@@ -886,13 +912,7 @@ int main(int argc, char **argv) {
         ret = run_server();
     }
 
-    if (num_of_threads){
-        pthread_mutex_init(&lock, NULL);
-        pool=threadpool_create(num_of_threads,num_of_threads*8,0);
-        if (pool!=NULL){
-            printf("ThreadPool started with %d thread, and with queue size of %d\n ", num_of_threads, num_of_threads*8);
-        }
-    }
+
     cleanup_nodes();
     rdma_destroy_event_channel(channel);
     if (rai)
