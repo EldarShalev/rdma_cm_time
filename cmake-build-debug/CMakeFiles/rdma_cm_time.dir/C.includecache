@@ -72,15 +72,5 @@ stdlib.h
 queue.h
 /labhome/eldarsh/workspace/rdma_cm_time/queue.h
 
-/labhome/eldarsh/workspace/rdma_cm_time/threadpool.c
-threadpool.h
-/labhome/eldarsh/workspace/rdma_cm_time/threadpool.h
-stdlib.h
--
-pthread.h
--
-unistd.h
--
-
 /labhome/eldarsh/workspace/rdma_cm_time/threadpool.h
 

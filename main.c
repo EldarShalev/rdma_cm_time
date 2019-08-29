@@ -28,7 +28,10 @@ static char *dst_addr;
 static char *src_addr;
 static int timeout = 2000;
 static int retries = 2;
+threadpool_t *pool;
 static int num_of_threads=1;
+pthread_mutex_t tp_lock;
+int tasks = 0, done = 0;
 
 enum step {
     STEP_CREATE_ID,
@@ -557,7 +560,7 @@ static void *connection(void *arg) {
         if (nodes[j].error)
             continue;
         start_perf(&nodes[j], STEP_CONNECT);
-        //#printf("trying to connect for id %d\n", nodes[j].id);
+        //$printf("trying to connect for id %d\n", nodes[j].id);
         ret = rdma_connect(nodes[j].id, &conn_param);
         if (ret) {
             perror("failure connecting");
@@ -586,7 +589,6 @@ static void *connection(void *arg) {
 }
 
 static void *disconnection(void *arg) {
-    sleep(1);
     printf("Thread \"disconnection\" has started \n");
     start_time(STEP_DISCONNECT);
     int ret = 0;
@@ -827,7 +829,6 @@ int Run_Threads(){
 int main(int argc, char **argv) {
 
     int op, ret;
-    threadpool_t *pool;
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
     while ((op = getopt(argc, argv, "s:b:c:p:r:t:n:")) != -1) {
@@ -885,11 +886,15 @@ int main(int argc, char **argv) {
         ret = run_server();
     }
 
+    if (num_of_threads){
+        pthread_mutex_init(&lock, NULL);
+        pool=threadpool_create(num_of_threads,num_of_threads*8,0);
+        if (pool!=NULL){
+            printf("ThreadPool started with %d thread, and with queue size of %d\n ", num_of_threads, num_of_threads*8);
+        }
+    }
     cleanup_nodes();
     rdma_destroy_event_channel(channel);
-
-
-
     if (rai)
         rdma_freeaddrinfo(rai);
 
