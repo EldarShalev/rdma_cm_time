@@ -59,8 +59,10 @@ static int timeout = 2000;
 static int retries = 2;
 ///////////////////
 threadpool thpool;
+threadpool thpool2;
 static int num_of_threads=1;
 pthread_mutex_t tp_lock;
+volatile static int counter=0;
 
 enum step {
     STEP_CREATE_ID,
@@ -226,7 +228,6 @@ static void disc_handler(struct node *n)
 static void __req_handler(struct rdma_cm_id *id)
 {
     int ret;
-
     ret = rdma_create_qp(id, NULL, &init_qp_attr);
     if (ret) {
         perror("failure creating qp");
@@ -253,6 +254,7 @@ static void *req_handler_thread(void *arg)
     struct list_head *work;
     do {
         pthread_mutex_lock(&req_work.lock);
+        //printf("CONSUMER thread id = %d\n", pthread_self());
         if (__list_empty(&req_work))
             pthread_cond_wait(&req_work.cond, &req_work.lock);
         work = __list_remove_head(&req_work);
@@ -280,7 +282,7 @@ static void *disc_handler_thread(void *arg)
     return NULL;
 }
 
-static void cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
+static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
 {
     struct node *n = id->context;
     struct list_head *request;
@@ -293,6 +295,7 @@ static void cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
             route_handler(n);
             break;
         case RDMA_CM_EVENT_CONNECT_REQUEST:
+            //printf("PRODUCER thread id = %d\n", pthread_self());
             request = malloc(sizeof *request);
             if (!request) {
                 perror("out of memory accepting connect request");
@@ -395,6 +398,10 @@ static int alloc_nodes(void)
 
 static void cleanup_nodes(void)
 {
+    printf("Working threads: %d\n", thpool_num_threads_working(thpool));
+    thpool_destroy(thpool);
+    printf("Working threads: %d\n", thpool_num_threads_working(thpool2));
+    thpool_destroy(thpool2);
     int i;
     pthread_mutex_destroy(&tp_lock);
     printf("destroying id\n");
@@ -416,6 +423,7 @@ static void *process_events(void *arg)
     while (!ret) {
         ret = rdma_get_cm_event(channel, &event);
         if (!ret) {
+            //thpool_add_work(thpool2,(cma_handler)(event->id, event),NULL);
             cma_handler(event->id, event);
         } else {
             perror("failure in rdma_get_cm_event in process_server_events");
@@ -455,7 +463,8 @@ int get_rdma_addr(char *src, char *dst, char *port,
 
 static int run_server(void)
 {
-    pthread_t req_thread, disc_thread;
+    pthread_t req_thread;
+    pthread_t disc_thread;
     struct rdma_cm_id *listen_id;
     int ret;
 
@@ -485,11 +494,21 @@ static int run_server(void)
         return ret;
     }
 
-    ret = pthread_create(&req_thread, NULL, req_handler_thread, NULL);
-    if (ret) {
-        perror("failed to create req handler thread");
-        return ret;
+    // Threadpool of Consumers
+    if (num_of_threads>1){
+        int j;
+        for (j=0;j<num_of_threads;j++){
+            thpool_add_work(thpool,(void*)req_handler_thread,NULL);
+        }
     }
+    else {
+        ret = pthread_create(&req_thread, NULL, req_handler_thread, NULL);
+        if (ret) {
+            perror("failed to create req handler thread");
+            return ret;
+        }
+    }
+
 
     ret = pthread_create(&disc_thread, NULL, disc_handler_thread, NULL);
     if (ret) {
@@ -627,10 +646,13 @@ static int run_client(void)
         start_perf(&nodes[i], STEP_CONNECT);
         ret = rdma_connect(nodes[i].id, &conn_param);
         if (ret) {
-            perror("failure rconnecting");
+            perror("failure connecting");
             nodes[i].error = 1;
             continue;
         }
+//        pthread_mutex_lock(&tp_lock);
+//        printf("client counter%d\n",++counter);
+//        pthread_mutex_unlock(&tp_lock);
         started[STEP_CONNECT]++;
     }
     while (started[STEP_CONNECT] != completed[STEP_CONNECT]) sched_yield();
@@ -658,7 +680,7 @@ int main(int argc, char **argv)
 
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
-    while ((op = getopt(argc, argv, "s:b:c:p:r:t:")) != -1) {
+    while ((op = getopt(argc, argv, "s:b:c:p:r:t:n:")) != -1) {
         switch (op) {
             case 's':
                 dst_addr = optarg;
@@ -678,6 +700,10 @@ int main(int argc, char **argv)
             case 't':
                 timeout = atoi(optarg);
                 break;
+            case 'n':
+                num_of_threads=atoi(optarg);
+                break;
+
             default:
                 printf("usage: %s\n", argv[0]);
                 printf("\t[-s server_address]\n");
@@ -686,6 +712,7 @@ int main(int argc, char **argv)
                 printf("\t[-p port_number]\n");
                 printf("\t[-r retries]\n");
                 printf("\t[-t timeout_ms]\n");
+                printf("\t[-n num_of_threads]\n");
                 exit(1);
         }
     }
@@ -699,6 +726,11 @@ int main(int argc, char **argv)
     channel = rdma_create_event_channel();
     if (!channel) {
         exit(1);
+    }
+
+    if (num_of_threads){
+        thpool = thpool_init(num_of_threads);
+        thpool2 = thpool_init(num_of_threads);
     }
 
     if (dst_addr) {
@@ -716,5 +748,6 @@ int main(int argc, char **argv)
 
     show_perf();
     free(nodes);
+    printf("Counter is %d\n", counter);
     return ret;
 }
