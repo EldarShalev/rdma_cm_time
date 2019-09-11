@@ -357,10 +357,17 @@ static int alloc_nodes(void)
         printf("\n mutex init has failed\n");
         return 1;
     }
+    if (pthread_mutex_init(&tp_lock, NULL)!=0){
+        printf("\n thread pool mutex init has failed\n");
+        return 1;
+    }
+
     nodes = calloc(sizeof *nodes, connections);
     if (!nodes)
         return -ENOMEM;
 
+
+    // Creating all blocking queues
     resolve_route_queue=queue_create();
     qp_creation_queue=queue_create();
     connection_queue=queue_create();
@@ -391,28 +398,31 @@ static int alloc_nodes(void)
 
 static void cleanup_nodes(void)
 {
+    printf("destroying id\n");
     pthread_mutex_destroy(&lock);
-    //pthread_mutex_destroy(&tp_lock);
-    int i;
+    pthread_mutex_destroy(&tp_lock);
     queue_destroy(resolve_route_queue);
     queue_destroy(qp_creation_queue);
     queue_destroy(connection_queue);
     queue_destroy(disconnection_queue);
+    // Should be 0 threads working by now..
     printf("Working threads: %d\n", thpool_num_threads_working(thpool));
     thpool_destroy(thpool);
 
-    printf("destroying id\n");
-
-    start_time(STEP_DESTROY);
-    for (i = 0; i < connections; i++) {
-        start_perf(&nodes[i], STEP_DESTROY);
-        // TODO bug seems like a thread issue.....
-        printf("BUG: %d\n", i);
-        if (nodes[i].id)
-            rdma_destroy_id(nodes[i].id);
-        end_perf(&nodes[i], STEP_DESTROY);
-    }
-    end_time(STEP_DESTROY);
+//    int i;
+//    start_time(STEP_DESTROY);
+//    for (i = 1; i < connections; i++) {
+//        start_perf(&nodes[i], STEP_DESTROY);
+//        if (nodes[i].id) {
+//            printf("BUG: %d\n", nodes[i].id);
+//           // rdma_destroy_id(nodes[i].id);
+//        }
+//        end_perf(&nodes[i], STEP_DESTROY);
+//    }
+//    // TODO bug in place [0](?)
+//    //printf("Special BUG: %d\n", nodes[0].id);
+//    //rdma_destroy_id(nodes[0].id);
+//    end_time(STEP_DESTROY);
 
 }
 
@@ -461,6 +471,7 @@ static void *resolving_addresses(void *arg) {
 
 
     }
+    // TODO - busy waiting..
     while (started[STEP_RESOLVE_ADDR] != completed[STEP_RESOLVE_ADDR]) sched_yield();
     end_time(STEP_RESOLVE_ADDR);
     return NULL;
@@ -500,6 +511,7 @@ static void *resolving_route(void *arg) {
         j++;
 
     }
+    // TODO - sched_yield() can cause busy waiting..
     while (started[STEP_RESOLVE_ROUTE] != completed[STEP_RESOLVE_ROUTE]) sched_yield();
     end_time(STEP_RESOLVE_ROUTE);
     // TODO free here
@@ -537,7 +549,6 @@ static void *qp_creation(void *arg) {
         }
         queue_put(connection_queue,&nodes[j]);
         j++;
-        // TODO understand why the end_perf here (Same as original cmtime)
         end_perf(&nodes[j], STEP_CREATE_QP);
 
     }
@@ -575,15 +586,13 @@ static void *connection(void *arg) {
             continue;
         }
         started[STEP_CONNECT]++;
-        // TODO RACE IF DISCONNECT
-        // for disconnect need first:
-        // 1) wait for event connection rdma_get_cm_event
-        // 2) callback from server rdma_ack_cm_event
+
 
         queue_put(disconnection_queue,&nodes[j]);
         j++;
 
     }
+    // TODO - busy waiting..
     while (started[STEP_CONNECT] != completed[STEP_CONNECT]){
         sched_yield();
     }
@@ -594,8 +603,7 @@ static void *connection(void *arg) {
 }
 
 static void *disconnection(void *arg) {
-    //printf("Thread \"disconnection\" has started \n");
-    //start_time(STEP_DISCONNECT);
+    //#printf("Thread #%u working on task1\n", (int)pthread_self());
     int ret = 0;
     int j=0;
     struct node *current= calloc(sizeof *nodes, 1);
@@ -612,20 +620,23 @@ static void *disconnection(void *arg) {
     if (nodes[j].error)
         return NULL;
     start_perf(&nodes[j], STEP_DISCONNECT);
-    //#printf("trying to disconnect for id %d\n", nodes[j].id);
+    //#printf("trying to disconnect for id: %d\n", nodes[j].id);
     rdma_disconnect(nodes[j].id);
     rdma_destroy_qp(nodes[j].id);
+    //#printf("trying to destroy id: %d\n", nodes[j].id);
+    rdma_destroy_id(nodes[j].id);
     pthread_mutex_unlock(&tp_lock);
-    //started[STEP_DISCONNECT]++;
+    started[STEP_DISCONNECT]++;
     //j++;
 
 
 
+//    // TODO - busy waiting..
 //    while (started[STEP_DISCONNECT] != completed[STEP_DISCONNECT]) {
 //        sched_yield();
 //    }
 //    end_time(STEP_DISCONNECT);
-//    // TODO free here
+////    // TODO free here
 //    //free(current);
     //return NULL;
 
@@ -789,11 +800,14 @@ int Run_Threads(){
         return ret;
     }
 
+
     ret=pthread_create(&resolving_route_thread,NULL,resolving_route,NULL);
     if (ret) {
         perror("failure resolving route thread");
         return ret;
     }
+
+
 
     ret=pthread_create(&create_qp_thread,NULL,qp_creation,NULL);
     if (ret) {
@@ -801,12 +815,13 @@ int Run_Threads(){
         return ret;
     }
 
+
+
     ret=pthread_create(&connecting_thread,NULL,connection,NULL);
     if (ret) {
         perror("failure creating connection thread");
         return ret;
     }
-
 
 
     pthread_join(resolving_addr_thread,NULL);
@@ -819,7 +834,8 @@ int Run_Threads(){
     printf("Thread \"connection\" has finished\n");
 
 
-
+    // Disconnection part with threadpool
+    start_time(STEP_DISCONNECT);
     int j;
     for (j=0;j<connections;j++){
         thpool_add_work(thpool,(void*)&disconnection,NULL);
@@ -827,10 +843,7 @@ int Run_Threads(){
 
     thpool_wait(thpool);
     printf("Thread \"disconnection\" has finished\n");
-    // Destroy our threadpool
-
-
-
+    end_time(STEP_DISCONNECT);
 
 
 
@@ -846,7 +859,6 @@ int Run_Threads(){
 }
 
 int main(int argc, char **argv) {
-
     int op, ret;
 
     hints.ai_port_space = RDMA_PS_TCP;
@@ -872,7 +884,7 @@ int main(int argc, char **argv) {
                 timeout = atoi(optarg);
                 break;
             case 'n':
-                num_of_threads=atof(optarg);
+                num_of_threads=atoi(optarg);
                 break;
 
             default:
@@ -900,7 +912,6 @@ int main(int argc, char **argv) {
     }
 
     if (num_of_threads){
-        pthread_mutex_init(&tp_lock, NULL);
         thpool = thpool_init(num_of_threads);
     }
 
