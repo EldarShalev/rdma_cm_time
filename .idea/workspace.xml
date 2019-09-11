@@ -11,15 +11,12 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="536a7076-d589-4e0b-a20d-6f731b6ad493" name="Default Changelist" comment="with profiling">
+    <list default="true" id="536a7076-d589-4e0b-a20d-6f731b6ad493" name="Default Changelist" comment="MultiThreaded client side">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/a.out" beforeDir="false" afterPath="$PROJECT_DIR$/a.out" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/flags.make" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/flags.make" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/link.txt" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/link.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/C.includecache" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/C.includecache" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/main.c.o" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/main.c.o" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/queue.c.o" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/queue.c.o" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/queue_internal.c.o" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/rdma_cm_time.dir/queue_internal.c.o" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cmake-build-debug/rdma_cm_time" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/rdma_cm_time" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.c" beforeDir="false" afterPath="$PROJECT_DIR$/main.c" afterDir="false" />
     </list>
@@ -61,6 +58,11 @@
         <option value="Eldar Shalev &lt;eldarsh@r-arch-host04.mtr.labs.mlnx&gt;" />
       </list>
     </option>
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="master" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="OCFindUsagesOptions" text="true" ivars="false" properties="true" derivedClasses="false" />
@@ -98,7 +100,7 @@
     </option>
   </component>
   <component name="RunManager">
-    <configuration name="rdma_cm_time" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-s 1.1.1.2 -c 2000 -n 2" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rdma_cm_time" TARGET_NAME="rdma_cm_time" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rdma_cm_time" RUN_TARGET_NAME="rdma_cm_time">
+    <configuration name="rdma_cm_time" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-s 1.1.1.2 -c 100" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rdma_cm_time" TARGET_NAME="rdma_cm_time" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rdma_cm_time" RUN_TARGET_NAME="rdma_cm_time">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -132,7 +134,7 @@
       <workItem from="1567580445771" duration="3035000" />
       <workItem from="1567682474598" duration="410000" />
       <workItem from="1567683089065" duration="1865000" />
-      <workItem from="1567953049544" duration="4616000" />
+      <workItem from="1567953049544" duration="7119000" />
     </task>
     <task id="LOCAL-00001" summary="Added queue structure">
       <created>1566829938653</created>
@@ -162,7 +164,14 @@
       <option name="project" value="LOCAL" />
       <updated>1567094768562</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="MultiThreaded client side">
+      <created>1568179025899</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1568179025899</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -185,45 +194,21 @@
     <MESSAGE value="Added queue structure" />
     <MESSAGE value="Added pipes and filters" />
     <MESSAGE value="Before ThreadPool" />
-    <option name="LAST_COMMIT_MESSAGE" value="Before ThreadPool" />
+    <MESSAGE value="MultiThreaded client side" />
+    <option name="LAST_COMMIT_MESSAGE" value="MultiThreaded client side" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
           <url>file://$PROJECT_DIR$/main.c</url>
-          <line>414</line>
+          <line>401</line>
           <option name="timeStamp" value="245" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
           <url>file://$PROJECT_DIR$/main.c</url>
-          <line>425</line>
+          <line>408</line>
           <option name="timeStamp" value="246" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/main.c</url>
-          <line>845</line>
-          <option name="timeStamp" value="251" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/main.c</url>
-          <line>927</line>
-          <option name="timeStamp" value="254" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/main.c</url>
-          <line>676</line>
-          <option name="timeStamp" value="256" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/main.c</url>
-          <line>582</line>
-          <option name="timeStamp" value="263" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/main.c</url>
-          <line>877</line>
-          <option name="timeStamp" value="264" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

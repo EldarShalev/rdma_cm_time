@@ -9,8 +9,6 @@
 /labhome/eldarsh/workspace/rdma_cm_time/main.c
 stdio.h
 -
-stdio.h
--
 stdlib.h
 -
 string.h
@@ -35,16 +33,14 @@ fcntl.h
 -
 unistd.h
 -
-netinet/in.h
--
 netinet/tcp.h
+-
+rdma/rdma_cma.h
 -
 pthread.h
 -
 queue_internal.h
 /labhome/eldarsh/workspace/rdma_cm_time/queue_internal.h
-rdma/rdma_cma.h
--
 threadpool.h
 /labhome/eldarsh/workspace/rdma_cm_time/threadpool.h
 
