@@ -61,6 +61,7 @@ static int retries = 2;
 threadpool thpool;
 threadpool thpool2;
 static int num_of_threads=1;
+static int disconnection=1;
 pthread_mutex_t tp_lock;
 volatile static int counter=0;
 
@@ -658,19 +659,20 @@ static int run_client(void)
     while (started[STEP_CONNECT] != completed[STEP_CONNECT]) sched_yield();
     end_time(STEP_CONNECT);
 
-    printf("disconnecting\n");
-    start_time(STEP_DISCONNECT);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-        start_perf(&nodes[i], STEP_DISCONNECT);
-        rdma_disconnect(nodes[i].id);
-        rdma_destroy_qp(nodes[i].id);
-        started[STEP_DISCONNECT]++;
+    if (disconnection) {
+        printf("disconnecting\n");
+        start_time(STEP_DISCONNECT);
+        for (i = 0; i < connections; i++) {
+            if (nodes[i].error)
+                continue;
+            start_perf(&nodes[i], STEP_DISCONNECT);
+            rdma_disconnect(nodes[i].id);
+            rdma_destroy_qp(nodes[i].id);
+            started[STEP_DISCONNECT]++;
+        }
+        while (started[STEP_DISCONNECT] != completed[STEP_DISCONNECT]) sched_yield();
+        end_time(STEP_DISCONNECT);
     }
-    while (started[STEP_DISCONNECT] != completed[STEP_DISCONNECT]) sched_yield();
-    end_time(STEP_DISCONNECT);
-
     return ret;
 }
 
@@ -680,7 +682,7 @@ int main(int argc, char **argv)
 
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
-    while ((op = getopt(argc, argv, "s:b:c:p:r:t:n:")) != -1) {
+    while ((op = getopt(argc, argv, "s:b:c:p:r:t:n:d:")) != -1) {
         switch (op) {
             case 's':
                 dst_addr = optarg;
@@ -703,6 +705,9 @@ int main(int argc, char **argv)
             case 'n':
                 num_of_threads=atoi(optarg);
                 break;
+            case 'd':
+                disconnection=atoi(optarg);
+                break;
 
             default:
                 printf("usage: %s\n", argv[0]);
@@ -713,6 +718,7 @@ int main(int argc, char **argv)
                 printf("\t[-r retries]\n");
                 printf("\t[-t timeout_ms]\n");
                 printf("\t[-n num_of_threads]\n");
+                printf("\t[-d include disconnect (0|1)]\n");
                 exit(1);
         }
     }
