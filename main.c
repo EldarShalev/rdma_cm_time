@@ -72,6 +72,7 @@ enum step {
     STEP_RESOLVE_ROUTE,
     STEP_CREATE_QP,
     STEP_CONNECT,
+    STEP_REQ,
     STEP_DISCONNECT,
     STEP_DESTROY,
     STEP_CNT
@@ -84,6 +85,7 @@ static const char *step_str[] = {
         "resolve route",
         "create qp",
         "connect",
+        "request time",
         "disconnect",
         "destroy"
 };
@@ -213,7 +215,10 @@ static void route_handler(struct node *n)
     end_perf(n, STEP_RESOLVE_ROUTE);
     completed[STEP_RESOLVE_ROUTE]++;
 }
-
+static void req_handler(struct node *n){
+    end_perf(n,STEP_REQ);
+    completed[STEP_REQ]++;
+}
 static void conn_handler(struct node *n)
 {
     end_perf(n, STEP_CONNECT);
@@ -296,6 +301,7 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
             route_handler(n);
             break;
         case RDMA_CM_EVENT_CONNECT_REQUEST:
+            started[STEP_REQ]++;
             //printf("PRODUCER thread id = %d\n", pthread_self());
             request = malloc(sizeof *request);
             if (!request) {
@@ -306,6 +312,9 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
                 INIT_LIST(request);
                 request->id = id;
                 list_add_tail(&req_work, request);
+            }
+            if (n) {
+                req_handler(n);
             }
             break;
         case RDMA_CM_EVENT_ESTABLISHED:
@@ -640,10 +649,13 @@ static int run_client(void)
     end_time(STEP_CREATE_QP);
 
     printf("connecting\n");
+    start_time(STEP_REQ);
     start_time(STEP_CONNECT);
     for (i = 0; i < connections; i++) {
         if (nodes[i].error)
             continue;
+
+        start_perf(&nodes[i], STEP_REQ);
         start_perf(&nodes[i], STEP_CONNECT);
         ret = rdma_connect(nodes[i].id, &conn_param);
         if (ret) {
@@ -651,11 +663,13 @@ static int run_client(void)
             nodes[i].error = 1;
             continue;
         }
+
 //        pthread_mutex_lock(&tp_lock);
 //        printf("client counter%d\n",++counter);
 //        pthread_mutex_unlock(&tp_lock);
         started[STEP_CONNECT]++;
     }
+    end_time(STEP_REQ);
     while (started[STEP_CONNECT] != completed[STEP_CONNECT]) sched_yield();
     end_time(STEP_CONNECT);
 
@@ -717,7 +731,7 @@ int main(int argc, char **argv)
                 printf("\t[-p port_number]\n");
                 printf("\t[-r retries]\n");
                 printf("\t[-t timeout_ms]\n");
-                printf("\t[-n num_of_threads]\n");
+                printf("\t[-n num_of_threads(server side)]\n");
                 printf("\t[-d include disconnect (0|1)]\n");
                 exit(1);
         }
@@ -728,6 +742,7 @@ int main(int argc, char **argv)
     init_qp_attr.cap.max_send_sge = 1;
     init_qp_attr.cap.max_recv_sge = 1;
     init_qp_attr.qp_type = IBV_QPT_RC;
+
 
     channel = rdma_create_event_channel();
     if (!channel) {
