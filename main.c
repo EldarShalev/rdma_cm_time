@@ -62,6 +62,8 @@ threadpool thpool;
 threadpool thpool2;
 static int num_of_threads=1;
 static int disconnection=1;
+static int cq=0;
+static int pd=0;
 pthread_mutex_t tp_lock;
 volatile static int counter=0;
 
@@ -433,7 +435,6 @@ static void *process_events(void *arg)
     while (!ret) {
         ret = rdma_get_cm_event(channel, &event);
         if (!ret) {
-            //thpool_add_work(thpool2,(cma_handler)(event->id, event),NULL);
             cma_handler(event->id, event);
         } else {
             perror("failure in rdma_get_cm_event in process_server_events");
@@ -510,8 +511,7 @@ static int run_server(void)
         for (j=0;j<num_of_threads;j++){
             thpool_add_work(thpool,(void*)req_handler_thread,NULL);
         }
-    }
-    else {
+    } else {
         ret = pthread_create(&req_thread, NULL, req_handler_thread, NULL);
         if (ret) {
             perror("failed to create req handler thread");
@@ -663,10 +663,6 @@ static int run_client(void)
             nodes[i].error = 1;
             continue;
         }
-
-//        pthread_mutex_lock(&tp_lock);
-//        printf("client counter%d\n",++counter);
-//        pthread_mutex_unlock(&tp_lock);
         started[STEP_CONNECT]++;
     }
     end_time(STEP_REQ);
@@ -690,14 +686,31 @@ static int run_client(void)
     return ret;
 }
 
+static struct option longopts[] = {
+        { "cq",required_argument, NULL, 0},
+        { "pd",required_argument, NULL,0 },
+        { NULL, 0, NULL, 0 }
+};
+
 int main(int argc, char **argv)
 {
     int op, ret;
-
-    hints.ai_port_space = RDMA_PS_TCP;
-    hints.ai_qp_type = IBV_QPT_RC;
-    while ((op = getopt(argc, argv, "s:b:c:p:r:t:n:d:")) != -1) {
+    int option_index=0;
+    int ib_devices;
+    char *ib_devname = NULL;
+    struct ibv_device *ib_dev=NULL;
+    struct ibv_device **dev_list;
+    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:cq:pd:D:",longopts,&option_index)) != -1) {
         switch (op) {
+            case 0:
+                switch(option_index){
+                    case 0:
+                        cq=atoi(optarg);
+                        break;
+                    case 1:
+                        pd=atoi(optarg);
+                        break;
+                }break;
             case 's':
                 dst_addr = optarg;
                 break;
@@ -722,6 +735,9 @@ int main(int argc, char **argv)
             case 'd':
                 disconnection=atoi(optarg);
                 break;
+            case 'D':
+                ib_devname =strdup(optarg);
+                break;
 
             default:
                 printf("usage: %s\n", argv[0]);
@@ -732,10 +748,18 @@ int main(int argc, char **argv)
                 printf("\t[-r retries]\n");
                 printf("\t[-t timeout_ms]\n");
                 printf("\t[-n num_of_threads(server side)]\n");
-                printf("\t[-d include disconnect (0|1)]\n");
+                printf("\t[-d include disconnect test (0|1) (default is 1)]\n");
+                printf("\t[-D for IB device name \n");
+                printf("\t[--cq create CQ before connect (0|1) (default is 0)]\n");
+                printf("\t[--pd create PD before connect (0|1) (default is 0)]\n");
                 exit(1);
         }
     }
+
+
+    hints.ai_port_space = RDMA_PS_TCP;
+    hints.ai_qp_type = IBV_QPT_RC;
+
 
     init_qp_attr.cap.max_send_wr = 1;
     init_qp_attr.cap.max_recv_wr = 1;
@@ -753,9 +777,41 @@ int main(int argc, char **argv)
         thpool = thpool_init(num_of_threads);
         thpool2 = thpool_init(num_of_threads);
     }
+    // Get IB devices
+    dev_list=ibv_get_device_list(&ib_devices);
+    if (!dev_list) {
+        perror("Failed to get IB devices list");
+        return 1;
+    }
+
+    // Check if device exists
+    if (ib_devname){
+        int j;
+        for (j = 0; dev_list[j]; ++j)
+            if (!strcmp(ibv_get_device_name(dev_list[j]), ib_devname))
+                break;
+        ib_dev = dev_list[j];
+        if (!ib_dev) {
+            fprintf(stderr, "IB device %s not found\n", ib_devname);
+            return 1;
+        }
+    }
+
+    // Create CQ
+    struct ibv_context *ctx;
+    struct ibv_cq *cq_external;
+    if(cq){
+        ctx=ibv_open_device(ib_dev);
+        cq_external = ibv_create_cq(ctx,100,NULL,NULL,0);
+        init_qp_attr.recv_cq=cq_external;
+        init_qp_attr.send_cq=cq_external;
+    }
 
     if (dst_addr) {
         alloc_nodes();
+        //nodes[0].id->verbs=ctx;
+        //nodes[0].id->send_cq=cq_external;
+        //nodes[0].id->recv_cq=cq_external;
         ret = run_client();
     } else {
         hints.ai_flags |= RAI_PASSIVE;
@@ -769,6 +825,7 @@ int main(int argc, char **argv)
 
     show_perf();
     free(nodes);
+    //TODO - ibv_free_device_list(dev_list);
     printf("Counter is %d\n", counter);
     return ret;
 }
