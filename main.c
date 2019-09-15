@@ -65,6 +65,8 @@ static int cq=0;
 static int pd=0;
 pthread_mutex_t tp_lock;
 struct ibv_pd *pd_external;
+struct ibv_cq *cq_external;
+
 
 
 enum step {
@@ -423,6 +425,12 @@ static void cleanup_nodes(void)
         end_perf(&nodes[i], STEP_DESTROY);
     }
     end_time(STEP_DESTROY);
+    if (pd){
+        free(pd_external);
+    }
+    if (cq){
+        free(cq_external);
+    }
 }
 
 static void *process_events(void *arg)
@@ -613,7 +621,6 @@ static int run_client(void)
     end_time(STEP_RESOLVE_ADDR);
 
     // Create CQ
-    struct ibv_cq *cq_external;
     if(cq){
         cq_external = ibv_create_cq(nodes[0].id->verbs,100,NULL,NULL,0);
         init_qp_attr.recv_cq=cq_external;
