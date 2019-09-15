@@ -59,13 +59,13 @@ static int timeout = 2000;
 static int retries = 2;
 ///////////////////
 threadpool thpool;
-threadpool thpool2;
 static int num_of_threads=1;
 static int disconnection=1;
 static int cq=0;
 static int pd=0;
 pthread_mutex_t tp_lock;
-volatile static int counter=0;
+struct ibv_pd *pd_external;
+
 
 enum step {
     STEP_CREATE_ID,
@@ -412,8 +412,6 @@ static void cleanup_nodes(void)
 {
     printf("Working threads: %d\n", thpool_num_threads_working(thpool));
     thpool_destroy(thpool);
-    printf("Working threads: %d\n", thpool_num_threads_working(thpool2));
-    thpool_destroy(thpool2);
     int i;
     pthread_mutex_destroy(&tp_lock);
     printf("destroying id\n");
@@ -614,6 +612,23 @@ static int run_client(void)
     while (started[STEP_RESOLVE_ADDR] != completed[STEP_RESOLVE_ADDR]) sched_yield();
     end_time(STEP_RESOLVE_ADDR);
 
+    // Create CQ
+    struct ibv_cq *cq_external;
+    if(cq){
+        cq_external = ibv_create_cq(nodes[0].id->verbs,100,NULL,NULL,0);
+        init_qp_attr.recv_cq=cq_external;
+        init_qp_attr.send_cq=cq_external;
+    }
+
+    // Allocate external pd
+    if (pd){
+        pd_external=ibv_alloc_pd(nodes[0].id->verbs);
+        if (!pd_external) {
+            fprintf(stderr, "Error, ibv_alloc_pd() failed\n");
+            return -1;
+        }
+
+    }
     printf("resolving route\n");
     start_time(STEP_RESOLVE_ROUTE);
     for (i = 0; i < connections; i++) {
@@ -638,7 +653,11 @@ static int run_client(void)
         if (nodes[i].error)
             continue;
         start_perf(&nodes[i], STEP_CREATE_QP);
-        ret = rdma_create_qp(nodes[i].id, NULL, &init_qp_attr);
+        if (pd){
+            ret = rdma_create_qp(nodes[i].id, pd_external, &init_qp_attr);
+        } else {
+            ret = rdma_create_qp(nodes[i].id, NULL, &init_qp_attr);
+        }
         if (ret) {
             perror("failure creating qp");
             nodes[i].error = 1;
@@ -775,7 +794,6 @@ int main(int argc, char **argv)
 
     if (num_of_threads){
         thpool = thpool_init(num_of_threads);
-        thpool2 = thpool_init(num_of_threads);
     }
     // Get IB devices
     dev_list=ibv_get_device_list(&ib_devices);
@@ -783,7 +801,7 @@ int main(int argc, char **argv)
         perror("Failed to get IB devices list");
         return 1;
     }
-
+    struct ibv_context *ctx;
     // Check if device exists
     if (ib_devname){
         int j;
@@ -795,23 +813,19 @@ int main(int argc, char **argv)
             fprintf(stderr, "IB device %s not found\n", ib_devname);
             return 1;
         }
-    }
-
-    // Create CQ
-    struct ibv_context *ctx;
-    struct ibv_cq *cq_external;
-    if(cq){
         ctx=ibv_open_device(ib_dev);
-        cq_external = ibv_create_cq(ctx,100,NULL,NULL,0);
-        init_qp_attr.recv_cq=cq_external;
-        init_qp_attr.send_cq=cq_external;
+        if (!ctx) {
+            fprintf(stderr, "Error, failed to open the device '%s'\n",ib_devname);
+            return -1;
+        }
+
+        printf("The device '%s' was opened\n", ibv_get_device_name(ctx->device));
     }
+    
+
 
     if (dst_addr) {
         alloc_nodes();
-        //nodes[0].id->verbs=ctx;
-        //nodes[0].id->send_cq=cq_external;
-        //nodes[0].id->recv_cq=cq_external;
         ret = run_client();
     } else {
         hints.ai_flags |= RAI_PASSIVE;
@@ -825,7 +839,5 @@ int main(int argc, char **argv)
 
     show_perf();
     free(nodes);
-    //TODO - ibv_free_device_list(dev_list);
-    printf("Counter is %d\n", counter);
     return ret;
 }
