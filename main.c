@@ -49,7 +49,7 @@
 
 
 
-static struct rdma_addrinfo hints, *rai;
+static struct rdma_addrinfo hints;
 static struct rdma_addrinfo *rai;
 static struct rdma_event_channel *channel;
 static char *port = "7471";
@@ -63,6 +63,7 @@ static int num_of_threads=1;
 static int disconnection=1;
 static int cq=0;
 static int pd=0;
+static int eqp=0;
 pthread_mutex_t tp_lock;
 struct ibv_pd *pd_external;
 struct ibv_cq *cq_external;
@@ -239,6 +240,7 @@ static void __req_handler(struct rdma_cm_id *id)
 {
     int ret;
     ret = rdma_create_qp(id, NULL, &init_qp_attr);
+    //printf("id is %d , recv cq is %d, send cq is %d \n", id,&(init_qp_attr.recv_cq),&(init_qp_attr.send_cq));
     if (ret) {
         perror("failure creating qp");
         goto err1;
@@ -511,6 +513,7 @@ static int run_server(void)
         return ret;
     }
 
+
     // Threadpool of Consumers
     if (num_of_threads>1){
         int j;
@@ -713,8 +716,9 @@ static int run_client(void)
 }
 
 static struct option longopts[] = {
-        { "cq",required_argument, NULL, 0},
-        { "pd",required_argument, NULL,0 },
+        { "cq",no_argument, NULL, 0},
+        { "pd",no_argument, NULL,0 },
+        { "eqp" ,		no_argument,NULL,0 },
         { NULL, 0, NULL, 0 }
 };
 
@@ -726,17 +730,8 @@ int main(int argc, char **argv)
     char *ib_devname = NULL;
     struct ibv_device *ib_dev=NULL;
     struct ibv_device **dev_list;
-    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:cq:pd:D:",longopts,&option_index)) != -1) {
+    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:cq:pd:D:eqp:",longopts,&option_index)) != -1) {
         switch (op) {
-            case 0:
-                switch(option_index){
-                    case 0:
-                        cq=atoi(optarg);
-                        break;
-                    case 1:
-                        pd=atoi(optarg);
-                        break;
-                }break;
             case 's':
                 dst_addr = optarg;
                 break;
@@ -764,6 +759,18 @@ int main(int argc, char **argv)
             case 'D':
                 ib_devname =strdup(optarg);
                 break;
+            case 0:
+                switch(option_index){
+                    case 0:
+                        cq=1;
+                        break;
+                    case 1:
+                        pd=1;
+                        break;
+                    case 2:
+                        eqp=1;
+                        break;
+                }break;
 
             default:
                 printf("usage: %s\n", argv[0]);
@@ -830,7 +837,9 @@ int main(int argc, char **argv)
     }
     
 
+    if (eqp){
 
+    }
     if (dst_addr) {
         alloc_nodes();
         ret = run_client();
