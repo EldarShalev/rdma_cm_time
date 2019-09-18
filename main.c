@@ -43,10 +43,12 @@
 #include <netinet/tcp.h>
 #include <rdma/rdma_cma.h>
 #include <pthread.h>
+#include <arpa/inet.h>
+#include <limits.h>
 
 #include "queue_internal.h"
 #include "threadpool.h"
-
+#include "ibv_helper.h"
 
 
 static struct rdma_addrinfo hints;
@@ -54,20 +56,20 @@ static struct rdma_addrinfo *rai;
 static struct rdma_event_channel *channel;
 static char *port = "7471";
 static char *dst_addr;
-static char *src_addr;
+static char *client_src_addr;
+static char *server_src_addr;
 static int timeout = 2000;
 static int retries = 2;
 ///////////////////
 threadpool thpool;
-static int num_of_threads=1;
-static int disconnection=1;
-static int cq=0;
-static int pd=0;
-static int eqp=0;
+static int num_of_threads = 1;
+static int disconnection = 1;
+static int cq = 0;
+static int pd = 0;
+static int eqp = 0;
 pthread_mutex_t tp_lock;
 struct ibv_pd *pd_external;
 struct ibv_cq *cq_external;
-
 
 
 enum step {
@@ -95,6 +97,20 @@ static const char *step_str[] = {
         "destroy"
 };
 
+struct qp_external_attr {
+    struct ibv_cq *cq;
+    struct ibv_pd *pd;
+    struct ibv_qp *qp;        /* DCI (client) or DCT (server) */
+    enum ibv_mtu mtu;
+    struct rdma_cm_id *cm_id;    /* connection on client side,*/
+    /* listener on service side. */
+    struct sockaddr_storage sin;
+    __be16 port;
+    uint8_t is_global;
+    uint8_t sgid_index;
+
+};
+
 struct node {
     struct rdma_cm_id *id;
     struct timeval times[STEP_CNT][2];
@@ -102,16 +118,16 @@ struct node {
     int retries;
 };
 
-struct list_head {
-    struct list_head	*prev;
-    struct list_head	*next;
-    struct rdma_cm_id	*id;
+struct list_head_cm {
+    struct list_head_cm *prev;
+    struct list_head_cm *next;
+    struct rdma_cm_id *id;
 };
 
 struct work_list {
-    pthread_mutex_t		lock;
-    pthread_cond_t		cond;
-    struct list_head	list;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    struct list_head_cm list;
 };
 
 #define INIT_LIST(x) ((x)->prev = (x)->next = (x))
@@ -119,6 +135,7 @@ struct work_list {
 static struct work_list req_work;
 static struct work_list disc_work;
 static struct node *nodes;
+static struct qp_external_attr *qp_external;
 static struct timeval times[STEP_CNT][2];
 static int connections = 100;
 static volatile int started[STEP_CNT];
@@ -126,14 +143,13 @@ static volatile int completed[STEP_CNT];
 static struct ibv_qp_init_attr init_qp_attr;
 static struct rdma_conn_param conn_param;
 
-#define start_perf(n, s)	gettimeofday(&((n)->times[s][0]), NULL)
-#define end_perf(n, s)		gettimeofday(&((n)->times[s][1]), NULL)
-#define start_time(s)		gettimeofday(&times[s][0], NULL)
-#define end_time(s)		gettimeofday(&times[s][1], NULL)
+#define start_perf(n, s)    gettimeofday(&((n)->times[s][0]), NULL)
+#define end_perf(n, s)        gettimeofday(&((n)->times[s][1]), NULL)
+#define start_time(s)        gettimeofday(&times[s][0], NULL)
+#define end_time(s)        gettimeofday(&times[s][1], NULL)
 
-static inline void __list_delete(struct list_head *list)
-{
-    struct list_head *prev, *next;
+static inline void __list_delete(struct list_head_cm *list) {
+    struct list_head_cm *prev, *next;
     prev = list->prev;
     next = list->next;
     prev->next = next;
@@ -141,22 +157,19 @@ static inline void __list_delete(struct list_head *list)
     INIT_LIST(list);
 }
 
-static inline int __list_empty(struct work_list *list)
-{
+static inline int __list_empty(struct work_list *list) {
     return list->list.next == &list->list;
 }
 
-static inline struct list_head *__list_remove_head(struct work_list *work_list)
-{
-    struct list_head *list_item;
+static inline struct list_head_cm *__list_remove_head(struct work_list *work_list) {
+    struct list_head_cm *list_item;
 
     list_item = work_list->list.next;
     __list_delete(list_item);
     return list_item;
 }
 
-static inline void list_add_tail(struct work_list *work_list, struct list_head *req)
-{
+static inline void list_add_tail_cm(struct work_list *work_list, struct list_head_cm *req) {
     int empty;
     pthread_mutex_lock(&work_list->lock);
     empty = __list_empty(work_list);
@@ -168,18 +181,15 @@ static inline void list_add_tail(struct work_list *work_list, struct list_head *
         pthread_cond_signal(&work_list->cond);
 }
 
-static int zero_time(struct timeval *t)
-{
+static int zero_time(struct timeval *t) {
     return !(t->tv_sec || t->tv_usec);
 }
 
-static float diff_us(struct timeval *end, struct timeval *start)
-{
+static float diff_us(struct timeval *end, struct timeval *start) {
     return (end->tv_sec - start->tv_sec) * 1000000. + (end->tv_usec - start->tv_usec);
 }
 
-static void show_perf(void)
-{
+static void show_perf(void) {
     int c, i;
     float us, max[STEP_CNT], min[STEP_CNT];
 
@@ -200,7 +210,7 @@ static void show_perf(void)
 
     printf("step              total ms     max ms     min us  us / conn\n");
     for (i = 0; i < STEP_CNT; i++) {
-        if (i == STEP_BIND && !src_addr)
+        if (i == STEP_BIND && !client_src_addr)
             continue;
 
         us = diff_us(&times[i][1], &times[i][0]);
@@ -209,35 +219,32 @@ static void show_perf(void)
     }
 }
 
-static void addr_handler(struct node *n)
-{
+static void addr_handler(struct node *n) {
     end_perf(n, STEP_RESOLVE_ADDR);
     completed[STEP_RESOLVE_ADDR]++;
 }
 
-static void route_handler(struct node *n)
-{
+static void route_handler(struct node *n) {
     end_perf(n, STEP_RESOLVE_ROUTE);
     completed[STEP_RESOLVE_ROUTE]++;
 }
-static void req_handler(struct node *n){
-    end_perf(n,STEP_REQ);
+
+static void req_handler(struct node *n) {
+    end_perf(n, STEP_REQ);
     completed[STEP_REQ]++;
 }
-static void conn_handler(struct node *n)
-{
+
+static void conn_handler(struct node *n) {
     end_perf(n, STEP_CONNECT);
     completed[STEP_CONNECT]++;
 }
 
-static void disc_handler(struct node *n)
-{
+static void disc_handler(struct node *n) {
     end_perf(n, STEP_DISCONNECT);
     completed[STEP_DISCONNECT]++;
 }
 
-static void __req_handler(struct rdma_cm_id *id)
-{
+static void __req_handler(struct rdma_cm_id *id) {
     int ret;
     ret = rdma_create_qp(id, NULL, &init_qp_attr);
     //printf("id is %d , recv cq is %d, send cq is %d \n", id,&(init_qp_attr.recv_cq),&(init_qp_attr.send_cq));
@@ -261,9 +268,8 @@ static void __req_handler(struct rdma_cm_id *id)
     return;
 }
 
-static void *req_handler_thread(void *arg)
-{
-    struct list_head *work;
+static void *req_handler_thread(void *arg) {
+    struct list_head_cm *work;
     do {
         pthread_mutex_lock(&req_work.lock);
         //printf("CONSUMER thread id = %d\n", pthread_self());
@@ -277,9 +283,8 @@ static void *req_handler_thread(void *arg)
     return NULL;
 }
 
-static void *disc_handler_thread(void *arg)
-{
-    struct list_head *work;
+static void *disc_handler_thread(void *arg) {
+    struct list_head_cm *work;
     do {
         pthread_mutex_lock(&disc_work.lock);
         if (__list_empty(&disc_work))
@@ -294,10 +299,9 @@ static void *disc_handler_thread(void *arg)
     return NULL;
 }
 
-static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
-{
+static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event) {
     struct node *n = id->context;
-    struct list_head *request;
+    struct list_head_cm *request;
 
     switch (event->event) {
         case RDMA_CM_EVENT_ADDR_RESOLVED:
@@ -317,7 +321,7 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
             } else {
                 INIT_LIST(request);
                 request->id = id;
-                list_add_tail(&req_work, request);
+                list_add_tail_cm(&req_work, request);
             }
             if (n) {
                 req_handler(n);
@@ -365,7 +369,7 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
                 } else {
                     INIT_LIST(request);
                     request->id = id;
-                    list_add_tail(&disc_work, request);
+                    list_add_tail_cm(&disc_work, request);
                 }
             } else
                 disc_handler(n);
@@ -379,10 +383,9 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event)
     rdma_ack_cm_event(event);
 }
 
-static int alloc_nodes(void)
-{
+static int alloc_nodes(void) {
     int ret, i;
-    if (pthread_mutex_init(&tp_lock, NULL)!=0){
+    if (pthread_mutex_init(&tp_lock, NULL) != 0) {
         printf("\n thread pool mutex init has failed\n");
         return 1;
     }
@@ -412,8 +415,7 @@ static int alloc_nodes(void)
     return ret;
 }
 
-static void cleanup_nodes(void)
-{
+static void cleanup_nodes(void) {
     printf("Working threads: %d\n", thpool_num_threads_working(thpool));
     thpool_destroy(thpool);
     int i;
@@ -427,16 +429,15 @@ static void cleanup_nodes(void)
         end_perf(&nodes[i], STEP_DESTROY);
     }
     end_time(STEP_DESTROY);
-    if (pd){
+    if (pd) {
         free(pd_external);
     }
-    if (cq){
+    if (cq) {
         free(cq_external);
     }
 }
 
-static void *process_events(void *arg)
-{
+static void *process_events(void *arg) {
     struct rdma_cm_event *event;
     int ret = 0;
 
@@ -453,15 +454,14 @@ static void *process_events(void *arg)
 }
 
 int get_rdma_addr(char *src, char *dst, char *port,
-                  struct rdma_addrinfo *hints, struct rdma_addrinfo **rai)
-{
+                  struct rdma_addrinfo *hints, struct rdma_addrinfo **rai) {
     struct rdma_addrinfo rai_hints, *res;
     int ret;
+
 
     if (hints->ai_flags & RAI_PASSIVE)
         return rdma_getaddrinfo(src, port, hints, rai);
 
-    rai_hints = *hints;
     if (src) {
         rai_hints.ai_flags |= RAI_PASSIVE;
         ret = rdma_getaddrinfo(src, NULL, &rai_hints, &res);
@@ -473,6 +473,9 @@ int get_rdma_addr(char *src, char *dst, char *port,
         rai_hints.ai_flags &= ~RAI_PASSIVE;
     }
 
+    rai_hints = *hints;
+
+
     ret = rdma_getaddrinfo(dst, port, &rai_hints, rai);
     if (src)
         rdma_freeaddrinfo(res);
@@ -480,8 +483,7 @@ int get_rdma_addr(char *src, char *dst, char *port,
     return ret;
 }
 
-static int run_server(void)
-{
+static int run_server(void) {
     pthread_t req_thread;
     pthread_t disc_thread;
     struct rdma_cm_id *listen_id;
@@ -515,10 +517,10 @@ static int run_server(void)
 
 
     // Threadpool of Consumers
-    if (num_of_threads>1){
+    if (num_of_threads > 1) {
         int j;
-        for (j=0;j<num_of_threads;j++){
-            thpool_add_work(thpool,(void*)req_handler_thread,NULL);
+        for (j = 0; j < num_of_threads; j++) {
+            thpool_add_work(thpool, (void *) req_handler_thread, NULL);
         }
     } else {
         ret = pthread_create(&req_thread, NULL, req_handler_thread, NULL);
@@ -541,11 +543,12 @@ static int run_server(void)
         return ret;
     }
 
-    ret = get_rdma_addr(src_addr, dst_addr, port, &hints, &rai);
+    ret = get_rdma_addr(server_src_addr, dst_addr, port, &hints, &rai);
     if (ret) {
         printf("getrdmaaddr error: %s\n", gai_strerror(ret));
         goto out;
     }
+
 
     ret = rdma_bind_addr(listen_id, rai->ai_src_addr);
     if (ret) {
@@ -565,12 +568,11 @@ static int run_server(void)
     return ret;
 }
 
-static int run_client(void)
-{
+static int run_client(void) {
     pthread_t event_thread;
     int i, ret;
 
-    ret = get_rdma_addr(src_addr, dst_addr, port, &hints, &rai);
+    ret = get_rdma_addr(client_src_addr, dst_addr, port, &hints, &rai);
     if (ret) {
         printf("getaddrinfo error: %s\n", gai_strerror(ret));
         return ret;
@@ -588,7 +590,7 @@ static int run_client(void)
         return ret;
     }
 
-    if (src_addr) {
+    if (client_src_addr) {
         printf("binding source address\n");
         start_time(STEP_BIND);
         for (i = 0; i < connections; i++) {
@@ -623,16 +625,16 @@ static int run_client(void)
     while (started[STEP_RESOLVE_ADDR] != completed[STEP_RESOLVE_ADDR]) sched_yield();
     end_time(STEP_RESOLVE_ADDR);
 
-    // Create CQ
-    if(cq){
-        cq_external = ibv_create_cq(nodes[0].id->verbs,100,NULL,NULL,0);
-        init_qp_attr.recv_cq=cq_external;
-        init_qp_attr.send_cq=cq_external;
+    // CQ Flag
+    if (cq) {
+        cq_external = ibv_create_cq(nodes[0].id->verbs, 100, NULL, NULL, 0);
+        init_qp_attr.recv_cq = cq_external;
+        init_qp_attr.send_cq = cq_external;
     }
 
-    // Allocate external pd
-    if (pd){
-        pd_external=ibv_alloc_pd(nodes[0].id->verbs);
+    // External PD flag
+    if (pd) {
+        pd_external = ibv_alloc_pd(nodes[0].id->verbs);
         if (!pd_external) {
             fprintf(stderr, "Error, ibv_alloc_pd() failed\n");
             return -1;
@@ -663,7 +665,7 @@ static int run_client(void)
         if (nodes[i].error)
             continue;
         start_perf(&nodes[i], STEP_CREATE_QP);
-        if (pd){
+        if (pd) {
             ret = rdma_create_qp(nodes[i].id, pd_external, &init_qp_attr);
         } else {
             ret = rdma_create_qp(nodes[i].id, NULL, &init_qp_attr);
@@ -716,27 +718,96 @@ static int run_client(void)
 }
 
 static struct option longopts[] = {
-        { "cq",no_argument, NULL, 0},
-        { "pd",no_argument, NULL,0 },
-        { "eqp" ,		no_argument,NULL,0 },
-        { NULL, 0, NULL, 0 }
+        {"cq",  no_argument, NULL, 0},
+        {"pd",  no_argument, NULL, 0},
+        {"eqp", no_argument, NULL, 0},
+        {NULL, 0,            NULL, 0}
 };
 
-int main(int argc, char **argv)
-{
+
+static int eqp_run_server() {
+
+    struct ibv_port_attr port_attr;
+    int ret;
+    char str[INET_ADDRSTRLEN];
+    struct addrinfo *res;
+
+    ret = getaddrinfo(server_src_addr, NULL, NULL, &res);
+    if (ret) {
+        printf("getaddrinfo failed (%s) - invalid hostname or IP address\n", gai_strerror(ret));
+        return ret;
+    }
+
+    if (res->ai_family == PF_INET)
+        memcpy(&qp_external->sin, res->ai_addr, sizeof(struct sockaddr_in));
+    else if (res->ai_family == PF_INET6)
+        memcpy(&qp_external->sin, res->ai_addr, sizeof(struct sockaddr_in6));
+    else
+        ret = -1;
+
+
+    ret = rdma_create_id(channel, &qp_external->cm_id, NULL, hints.ai_port_space);
+    if (ret) {
+        perror("create rdma cm id request failed (for external QP)");
+        return ret;
+    }
+    // Resolve sin family
+    if (qp_external->sin.ss_family == AF_INET) {
+        ((struct sockaddr_in *) &qp_external->sin)->sin_port = qp_external->port;
+        inet_ntop(AF_INET, &(((struct sockaddr_in *) &qp_external->sin)->sin_addr), str, INET_ADDRSTRLEN);
+    } else {
+        ((struct sockaddr_in6 *) &qp_external->sin)->sin6_port = qp_external->port;
+        inet_ntop(AF_INET6, &(((struct sockaddr_in6 *) &qp_external->sin)->sin6_addr), str, INET_ADDRSTRLEN);
+    }
+
+    // Binding
+    ret = rdma_bind_addr(qp_external->cm_id, (struct sockaddr *) &qp_external->sin);
+    if (ret) {
+        perror("bind address failed (for external QP)");
+        goto out;
+    }
+
+
+    // Check if we could bind
+    if (qp_external->cm_id->verbs == NULL) {
+        perror("Can't extract context from id (for external QP)");
+        goto out;
+    }
+
+    // Query port
+    if (ibv_query_port(qp_external->cm_id->verbs, qp_external->cm_id->port_num, &port_attr)) {
+        perror("ibv_query_port faild (for external QP)");
+        goto out;
+    }
+
+    // Setting mtu
+    qp_external->mtu = port_attr.active_mtu;
+
+    if (port_attr.link_layer == IBV_LINK_LAYER_ETHERNET) {
+        qp_external->is_global = 1;
+        qp_external->sgid_index = ibv_find_sgid_type(qp_external->cm_id->verbs, qp_external->cm_id->port_num,
+                                                     IBV_GID_TYPE_ROCE_V2, qp_external->sin.ss_family);
+    }
+
+
+    out:
+    rdma_destroy_id(qp_external->cm_id);
+    return ret;
+
+
+}
+
+int main(int argc, char **argv) {
     int op, ret;
-    int option_index=0;
-    int ib_devices;
-    char *ib_devname = NULL;
-    struct ibv_device *ib_dev=NULL;
-    struct ibv_device **dev_list;
-    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:cq:pd:D:eqp:",longopts,&option_index)) != -1) {
+    int option_index = 0;
+
+    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:l:cq:pd:eqp:", longopts, &option_index)) != -1) {
         switch (op) {
             case 's':
                 dst_addr = optarg;
                 break;
             case 'b':
-                src_addr = optarg;
+                client_src_addr = optarg;
                 break;
             case 'c':
                 connections = atoi(optarg);
@@ -751,48 +822,50 @@ int main(int argc, char **argv)
                 timeout = atoi(optarg);
                 break;
             case 'n':
-                num_of_threads=atoi(optarg);
+                num_of_threads = atoi(optarg);
                 break;
             case 'd':
-                disconnection=atoi(optarg);
+                disconnection = atoi(optarg);
                 break;
-            case 'D':
-                ib_devname =strdup(optarg);
+            case 'l':
+                server_src_addr = optarg;
                 break;
             case 0:
-                switch(option_index){
+                switch (option_index) {
                     case 0:
-                        cq=1;
+                        cq = 1;
                         break;
                     case 1:
-                        pd=1;
+                        pd = 1;
                         break;
                     case 2:
-                        eqp=1;
+                        eqp = 1;
                         break;
-                }break;
+                }
+                break;
 
             default:
                 printf("usage: %s\n", argv[0]);
-                printf("\t[-s server_address]\n");
-                printf("\t[-b bind_address]\n");
-                printf("\t[-c connections]\n");
+                printf("\t[-s which server address to connect (client side)]\n");
+                printf("\t[-b bind_address (the src address of client side) ]\n");
+                printf("\t[-c connections (client side)]\n");
                 printf("\t[-p port_number]\n");
                 printf("\t[-r retries]\n");
                 printf("\t[-t timeout_ms]\n");
                 printf("\t[-n num_of_threads(server side)]\n");
                 printf("\t[-d include disconnect test (0|1) (default is 1)]\n");
-                printf("\t[-D for IB device name \n");
-                printf("\t[--cq create CQ before connect (0|1) (default is 0)]\n");
-                printf("\t[--pd create PD before connect (0|1) (default is 0)]\n");
+                printf("\t[-l listening to ip (server side) \n");
+                printf("\t[--cq create CQ before connect (default is 0)]\n");
+                printf("\t[--pd create PD before connect (default is 0)]\n");
+                printf("\t[--eqp create external QP before connect (default is 0)]\n");
                 exit(1);
         }
     }
 
 
+    // Init parameters
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
-
 
     init_qp_attr.cap.max_send_wr = 1;
     init_qp_attr.cap.max_recv_wr = 1;
@@ -801,51 +874,37 @@ int main(int argc, char **argv)
     init_qp_attr.qp_type = IBV_QPT_RC;
 
 
+    // Create channel
     channel = rdma_create_event_channel();
     if (!channel) {
         exit(1);
     }
 
-    if (num_of_threads){
+    // Create thredapool for server side handling events
+    if (num_of_threads) {
         thpool = thpool_init(num_of_threads);
     }
-    // Get IB devices
-    dev_list=ibv_get_device_list(&ib_devices);
-    if (!dev_list) {
-        perror("Failed to get IB devices list");
-        return 1;
-    }
-    struct ibv_context *ctx;
-    // Check if device exists
-    if (ib_devname){
-        int j;
-        for (j = 0; dev_list[j]; ++j)
-            if (!strcmp(ibv_get_device_name(dev_list[j]), ib_devname))
-                break;
-        ib_dev = dev_list[j];
-        if (!ib_dev) {
-            fprintf(stderr, "IB device %s not found\n", ib_devname);
-            return 1;
+
+    // External QP flag
+    if (eqp) {
+        // Need more attributes for external QP
+        if (dst_addr) { // Client
+
+        } else { //Server
+            hints.ai_flags |= RAI_PASSIVE;
+            qp_external = calloc(1, sizeof *qp_external);
+            qp_external->sin.ss_family = PF_INET;
+            qp_external->port = htobe16(7174);
+            ret = eqp_run_server();
         }
-        ctx=ibv_open_device(ib_dev);
-        if (!ctx) {
-            fprintf(stderr, "Error, failed to open the device '%s'\n",ib_devname);
-            return -1;
+    } else { // Not external QP
+        if (dst_addr) {
+            alloc_nodes();
+            ret = run_client();
+        } else {
+            hints.ai_flags |= RAI_PASSIVE;
+            ret = run_server();
         }
-
-        printf("The device '%s' was opened\n", ibv_get_device_name(ctx->device));
-    }
-    
-
-    if (eqp){
-
-    }
-    if (dst_addr) {
-        alloc_nodes();
-        ret = run_client();
-    } else {
-        hints.ai_flags |= RAI_PASSIVE;
-        ret = run_server();
     }
 
     cleanup_nodes();
