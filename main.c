@@ -41,6 +41,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <netinet/tcp.h>
+#include "ibv_helper.h"
 #include <rdma/rdma_cma.h>
 #include <pthread.h>
 #include <arpa/inet.h>
@@ -48,7 +49,6 @@
 
 #include "queue_internal.h"
 #include "threadpool.h"
-#include "ibv_helper.h"
 
 
 static struct rdma_addrinfo hints;
@@ -68,8 +68,10 @@ static int cq = 0;
 static int pd = 0;
 static int eqp = 0;
 pthread_mutex_t tp_lock;
-struct ibv_pd *pd_external;
-struct ibv_cq *cq_external;
+struct ibv_pd *pd_external_client;
+struct ibv_pd *pd_external_server;
+struct ibv_cq *cq_external_client;
+struct ibv_cq *cq_external_server;
 
 
 enum step {
@@ -246,7 +248,11 @@ static void disc_handler(struct node *n) {
 
 static void __req_handler(struct rdma_cm_id *id) {
     int ret;
-    ret = rdma_create_qp(id, NULL, &init_qp_attr);
+    if (pd) {
+        ret = rdma_create_qp(id, pd_external_server, &init_qp_attr);
+    } else {
+        ret = rdma_create_qp(id, NULL, &init_qp_attr);
+    }
     //printf("id is %d , recv cq is %d, send cq is %d \n", id,&(init_qp_attr.recv_cq),&(init_qp_attr.send_cq));
     if (ret) {
         perror("failure creating qp");
@@ -430,17 +436,18 @@ static void cleanup_nodes(void) {
     }
     end_time(STEP_DESTROY);
     if (pd) {
-        free(pd_external);
+        free(pd_external_client);
+        free(pd_external_server);
     }
     if (cq) {
-        free(cq_external);
+        free(cq_external_client);
+        free(cq_external_server);
     }
 }
 
 static void *process_events(void *arg) {
     struct rdma_cm_event *event;
     int ret = 0;
-
     while (!ret) {
         ret = rdma_get_cm_event(channel, &event);
         if (!ret) {
@@ -549,11 +556,27 @@ static int run_server(void) {
         goto out;
     }
 
-
     ret = rdma_bind_addr(listen_id, rai->ai_src_addr);
     if (ret) {
         perror("bind address failed");
         goto out;
+    }
+
+    // External CQ Flag
+    if (cq) {
+        cq_external_server = ibv_create_cq(listen_id->verbs, 100, NULL, NULL, 0);
+        init_qp_attr.recv_cq = cq_external_server;
+        init_qp_attr.send_cq = cq_external_server;
+
+    }
+    // External PD flag
+    if (pd) {
+        pd_external_server = ibv_alloc_pd(listen_id->verbs);
+        if (!pd_external_server) {
+            fprintf(stderr, "Error, ibv_alloc_pd() failed\n");
+            return -1;
+        }
+
     }
 
     ret = rdma_listen(listen_id, 0);
@@ -627,15 +650,15 @@ static int run_client(void) {
 
     // CQ Flag
     if (cq) {
-        cq_external = ibv_create_cq(nodes[0].id->verbs, 100, NULL, NULL, 0);
-        init_qp_attr.recv_cq = cq_external;
-        init_qp_attr.send_cq = cq_external;
+        cq_external_client = ibv_create_cq(nodes[0].id->verbs, 100, NULL, NULL, 0);
+        init_qp_attr.recv_cq = cq_external_client;
+        init_qp_attr.send_cq = cq_external_client;
     }
 
     // External PD flag
     if (pd) {
-        pd_external = ibv_alloc_pd(nodes[0].id->verbs);
-        if (!pd_external) {
+        pd_external_client = ibv_alloc_pd(nodes[0].id->verbs);
+        if (!pd_external_client) {
             fprintf(stderr, "Error, ibv_alloc_pd() failed\n");
             return -1;
         }
@@ -666,7 +689,7 @@ static int run_client(void) {
             continue;
         start_perf(&nodes[i], STEP_CREATE_QP);
         if (pd) {
-            ret = rdma_create_qp(nodes[i].id, pd_external, &init_qp_attr);
+            ret = rdma_create_qp(nodes[i].id, pd_external_client, &init_qp_attr);
         } else {
             ret = rdma_create_qp(nodes[i].id, NULL, &init_qp_attr);
         }

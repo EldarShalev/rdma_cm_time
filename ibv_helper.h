@@ -39,6 +39,7 @@
  * SOFTWARE.
  */
 
+#include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -48,9 +49,11 @@
 #include <zconf.h>
 #include <elf.h>
 #include <errno.h>
-#include <stdio.h>
 #include <infiniband/verbs.h>
-#include <bits/socket.h>
+#include <sys/socket.h>
+#include <libiberty.h>
+
+
 
 enum ibv_gid_type {
     IBV_GID_TYPE_IB_ROCE_V1,
@@ -64,7 +67,7 @@ static int ibv_read_sysfs_file(const char *dir, const char *file,
     int fd;
     int len;
 
-    if (sprintf(&path, "%s/%s", dir, file) < 0)
+    if (asprintf(&path, "%s/%s", dir, file) < 0)
         return -1;
 
     fd = open(path, O_RDONLY | O_CLOEXEC);
@@ -126,7 +129,7 @@ static int ibv_query_gid_type(struct ibv_context *context, uint8_t port_num,
             *type = IBV_GID_TYPE_IB_ROCE_V1;
             return 0;
         }
-        if (sprintf(&dir_path, "%s/%s/%d/%s/",
+        if (asprintf(&dir_path, "%s/%s/%d/%s/",
                      context->device->ibdev_path, "ports", port_num,
                      "gid_attrs") < 0)
             return -1;
