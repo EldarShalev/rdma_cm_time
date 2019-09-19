@@ -60,18 +60,20 @@ static char *client_src_addr;
 static char *server_src_addr;
 static int timeout = 2000;
 static int retries = 2;
-///////////////////
 threadpool thpool;
 static int num_of_threads = 1;
 static int disconnection = 1;
 static int cq = 0;
 static int pd = 0;
 static int eqp = 0;
+static int debug = 0;
 pthread_mutex_t tp_lock;
 struct ibv_pd *pd_external_client;
 struct ibv_pd *pd_external_server;
 struct ibv_cq *cq_external_client;
 struct ibv_cq *cq_external_server;
+
+#define DEBUG_LOG if (debug) printf
 
 
 enum step {
@@ -253,7 +255,7 @@ static void __req_handler(struct rdma_cm_id *id) {
     } else {
         ret = rdma_create_qp(id, NULL, &init_qp_attr);
     }
-    //printf("id is %d , recv cq is %d, send cq is %d \n", id,&(init_qp_attr.recv_cq),&(init_qp_attr.send_cq));
+    //*printf("id is %d , recv cq is %d, send cq is %d \n", id,&(init_qp_attr.recv_cq),&(init_qp_attr.send_cq));
     if (ret) {
         perror("failure creating qp");
         goto err1;
@@ -278,7 +280,7 @@ static void *req_handler_thread(void *arg) {
     struct list_head_cm *work;
     do {
         pthread_mutex_lock(&req_work.lock);
-        //printf("CONSUMER thread id = %d\n", pthread_self());
+        //*printf("CONSUMER thread id = %d\n", pthread_self());
         if (__list_empty(&req_work))
             pthread_cond_wait(&req_work.cond, &req_work.lock);
         work = __list_remove_head(&req_work);
@@ -318,7 +320,7 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event) {
             break;
         case RDMA_CM_EVENT_CONNECT_REQUEST:
             started[STEP_REQ]++;
-            //printf("PRODUCER thread id = %d\n", pthread_self());
+            //*printf("PRODUCER thread id = %d\n", pthread_self());
             request = malloc(sizeof *request);
             if (!request) {
                 perror("out of memory accepting connect request");
@@ -422,7 +424,7 @@ static int alloc_nodes(void) {
 }
 
 static void cleanup_nodes(void) {
-    printf("Working threads: %d\n", thpool_num_threads_working(thpool));
+    DEBUG_LOG("Working threads: %d\n", thpool_num_threads_working(thpool));
     thpool_destroy(thpool);
     int i;
     pthread_mutex_destroy(&tp_lock);
@@ -481,8 +483,6 @@ int get_rdma_addr(char *src, char *dst, char *port,
     }
 
     rai_hints = *hints;
-
-
     ret = rdma_getaddrinfo(dst, port, &rai_hints, rai);
     if (src)
         rdma_freeaddrinfo(res);
@@ -741,10 +741,11 @@ static int run_client(void) {
 }
 
 static struct option longopts[] = {
-        {"cq",  no_argument, NULL, 0},
-        {"pd",  no_argument, NULL, 0},
-        {"eqp", no_argument, NULL, 0},
-        {NULL, 0,            NULL, 0}
+        {"cq",    no_argument, NULL, 0},
+        {"pd",    no_argument, NULL, 0},
+        {"eqp",   no_argument, NULL, 0},
+        {"DEBUG", no_argument, NULL, 0},
+        {NULL, 0,              NULL, 0}
 };
 
 
@@ -791,7 +792,7 @@ static int eqp_run_server() {
     }
 
 
-    // Check if we could bind
+    // Check if we could bind and get context
     if (qp_external->cm_id->verbs == NULL) {
         perror("Can't extract context from id (for external QP)");
         goto out;
@@ -813,6 +814,12 @@ static int eqp_run_server() {
     }
 
 
+
+
+
+
+
+    return ret;
     out:
     rdma_destroy_id(qp_external->cm_id);
     return ret;
@@ -824,7 +831,7 @@ int main(int argc, char **argv) {
     int op, ret;
     int option_index = 0;
 
-    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:l:cq:pd:eqp:", longopts, &option_index)) != -1) {
+    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:l:cq:pd:eqp:DEBUG:", longopts, &option_index)) != -1) {
         switch (op) {
             case 's':
                 dst_addr = optarg;
@@ -856,14 +863,16 @@ int main(int argc, char **argv) {
             case 0:
                 switch (option_index) {
                     case 0:
-                        cq = 1;
+                        cq++;
                         break;
                     case 1:
-                        pd = 1;
+                        pd++;
                         break;
                     case 2:
-                        eqp = 1;
+                        eqp++;
                         break;
+                    case 3:
+                        debug++;
                 }
                 break;
 
@@ -881,6 +890,7 @@ int main(int argc, char **argv) {
                 printf("\t[--cq create CQ before connect (default is 0)]\n");
                 printf("\t[--pd create PD before connect (default is 0)]\n");
                 printf("\t[--eqp create external QP before connect (default is 0)]\n");
+                printf("\t[--DEBUG for more info (default is 0)]\n");
                 exit(1);
         }
     }
@@ -917,7 +927,7 @@ int main(int argc, char **argv) {
             hints.ai_flags |= RAI_PASSIVE;
             qp_external = calloc(1, sizeof *qp_external);
             qp_external->sin.ss_family = PF_INET;
-            qp_external->port = htobe16(7174);
+            qp_external->port = htobe16(port);
             ret = eqp_run_server();
         }
     } else { // Not external QP
