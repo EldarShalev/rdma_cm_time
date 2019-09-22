@@ -67,6 +67,7 @@ static int cq = 0;
 static int pd = 0;
 static int eqp = 0;
 static int debug = 0;
+static int modify_eqp = 0;
 pthread_mutex_t tp_lock;
 struct ibv_pd *pd_external_client;
 struct ibv_pd *pd_external_server;
@@ -106,8 +107,7 @@ struct qp_external_attr {
     struct ibv_pd *pd;
     struct ibv_qp *qp;        /* DCI (client) or DCT (server) */
     enum ibv_mtu mtu;
-    struct rdma_cm_id *cm_id;    /* connection on client side,*/
-    /* listener on service side. */
+    struct rdma_cm_id *cm_id;    /* connection on client side, listener on server side*/
     struct sockaddr_storage sin;
     __be16 port;
     uint8_t is_global;
@@ -152,6 +152,29 @@ static struct rdma_conn_param conn_param;
 #define start_time(s)        gettimeofday(&times[s][0], NULL)
 #define end_time(s)        gettimeofday(&times[s][1], NULL)
 
+
+const char *getEnumState(enum ibv_qp_state state) {
+    switch (state) {
+        case IBV_QPS_RESET:
+            return "IBV_QPS_RESET";
+        case IBV_QPS_INIT:
+            return "IBV_QPS_INIT";
+        case IBV_QPS_RTR:
+            return "IBV_QPS_RTR";
+        case IBV_QPS_RTS:
+            return "IBV_QPS_RTS";
+        case IBV_QPS_SQD:
+            return "IBV_QPS_SQD";
+        case IBV_QPS_SQE:
+            return "IBV_QPS_SQE";
+        case IBV_QPS_ERR:
+            return "IBV_QPS_ERR";
+        case IBV_QPS_UNKNOWN:
+            return "IBV_QPS_UNKNOWN";
+
+    }
+}
+
 static inline void __list_delete(struct list_head_cm *list) {
     struct list_head_cm *prev, *next;
     prev = list->prev;
@@ -160,6 +183,7 @@ static inline void __list_delete(struct list_head_cm *list) {
     next->prev = prev;
     INIT_LIST(list);
 }
+
 
 static inline int __list_empty(struct work_list *list) {
     return list->list.next == &list->list;
@@ -248,6 +272,29 @@ static void disc_handler(struct node *n) {
     completed[STEP_DISCONNECT]++;
 }
 
+static void rping_init_conn_param(struct rping_cb *cb,
+                                  struct rdma_conn_param *conn_param) {
+    memset(conn_param, 0, sizeof(*conn_param));
+    conn_param->responder_resources = 1;
+    conn_param->initiator_depth = 1;
+    conn_param->retry_count = 7;
+    conn_param->rnr_retry_count = 7;
+    if (qp_external->qp)
+        conn_param->qp_num = qp_external->qp->qp_num;
+}
+
+static void _eqp_req_handler(struct rdma_cm_id *id) {
+    struct rdma_conn_param connParam;
+    connParam.qp_num = qp_external->qp->qp_num;
+    int ret;
+    ret = rdma_accept(id, &connParam);
+    if (ret) {
+        perror("failure accepting");
+    }
+    return;
+}
+
+
 static void __req_handler(struct rdma_cm_id *id) {
     int ret;
     if (pd) {
@@ -276,7 +323,7 @@ static void __req_handler(struct rdma_cm_id *id) {
     return;
 }
 
-static void *req_handler_thread(void *arg) {
+static void *req_handler_thread(void (*f)(struct rdma_cm_id *)) {
     struct list_head_cm *work;
     do {
         pthread_mutex_lock(&req_work.lock);
@@ -285,7 +332,7 @@ static void *req_handler_thread(void *arg) {
             pthread_cond_wait(&req_work.cond, &req_work.lock);
         work = __list_remove_head(&req_work);
         pthread_mutex_unlock(&req_work.lock);
-        __req_handler(work->id);
+        (*f)(work->id);
         free(work);
     } while (1);
     return NULL;
@@ -455,7 +502,7 @@ static void *process_events(void *arg) {
         if (!ret) {
             cma_handler(event->id, event);
         } else {
-            perror("failure in rdma_get_cm_event in process_server_events");
+            perror("failure in rdma_get_cm_event in process_server_events\n");
             ret = errno;
         }
     }
@@ -500,25 +547,25 @@ static int run_server(void) {
     INIT_LIST(&disc_work.list);
     ret = pthread_mutex_init(&req_work.lock, NULL);
     if (ret) {
-        perror("initializing mutex for req work");
+        perror("initializing mutex for req work\n");
         return ret;
     }
 
     ret = pthread_mutex_init(&disc_work.lock, NULL);
     if (ret) {
-        perror("initializing mutex for disc work");
+        perror("initializing mutex for disc work\n");
         return ret;
     }
 
     ret = pthread_cond_init(&req_work.cond, NULL);
     if (ret) {
-        perror("initializing cond for req work");
+        perror("initializing cond for req work\n");
         return ret;
     }
 
     ret = pthread_cond_init(&disc_work.cond, NULL);
     if (ret) {
-        perror("initializing cond for disc work");
+        perror("initializing cond for disc work\n");
         return ret;
     }
 
@@ -527,12 +574,12 @@ static int run_server(void) {
     if (num_of_threads > 1) {
         int j;
         for (j = 0; j < num_of_threads; j++) {
-            thpool_add_work(thpool, (void *) req_handler_thread, NULL);
+            thpool_add_work(thpool, (void *) req_handler_thread, __req_handler);
         }
     } else {
-        ret = pthread_create(&req_thread, NULL, req_handler_thread, NULL);
+        ret = pthread_create(&req_thread, NULL, req_handler_thread(__req_handler), NULL);
         if (ret) {
-            perror("failed to create req handler thread");
+            perror("failed to create req handler thread\n");
             return ret;
         }
     }
@@ -540,13 +587,13 @@ static int run_server(void) {
 
     ret = pthread_create(&disc_thread, NULL, disc_handler_thread, NULL);
     if (ret) {
-        perror("failed to create disconnect handler thread");
+        perror("failed to create disconnect handler thread\n");
         return ret;
     }
 
     ret = rdma_create_id(channel, &listen_id, NULL, hints.ai_port_space);
     if (ret) {
-        perror("listen request failed");
+        perror("listen request failed\n");
         return ret;
     }
 
@@ -558,7 +605,7 @@ static int run_server(void) {
 
     ret = rdma_bind_addr(listen_id, rai->ai_src_addr);
     if (ret) {
-        perror("bind address failed");
+        perror("bind address failed\n");
         goto out;
     }
 
@@ -574,14 +621,14 @@ static int run_server(void) {
         pd_external_server = ibv_alloc_pd(listen_id->verbs);
         if (!pd_external_server) {
             fprintf(stderr, "Error, ibv_alloc_pd() failed\n");
-            return -1;
+            goto out;
         }
 
     }
 
     ret = rdma_listen(listen_id, 0);
     if (ret) {
-        perror("failure trying to listen");
+        perror("failure trying to listen\n");
         goto out;
     }
 
@@ -740,22 +787,76 @@ static int run_client(void) {
     return ret;
 }
 
-static struct option longopts[] = {
-        {"cq",    no_argument, NULL, 0},
-        {"pd",    no_argument, NULL, 0},
-        {"eqp",   no_argument, NULL, 0},
-        {"DEBUG", no_argument, NULL, 0},
-        {NULL, 0,              NULL, 0}
-};
-
-
-static int eqp_run_server() {
-
-    struct ibv_port_attr port_attr;
+int init_eqp_requests() {
+    pthread_t req_thread;
+    pthread_t disc_thread;
     int ret;
+    INIT_LIST(&req_work.list);
+    INIT_LIST(&disc_work.list);
+    ret = pthread_mutex_init(&req_work.lock, NULL);
+    if (ret) {
+        perror("initializing mutex for req work\n");
+        return ret;
+    }
+
+    ret = pthread_mutex_init(&disc_work.lock, NULL);
+    if (ret) {
+        perror("initializing mutex for disc work\n");
+        return ret;
+    }
+
+    ret = pthread_cond_init(&req_work.cond, NULL);
+    if (ret) {
+        perror("initializing cond for req work\n");
+        return ret;
+    }
+
+    ret = pthread_cond_init(&disc_work.cond, NULL);
+    if (ret) {
+        perror("initializing cond for disc work\n");
+        return ret;
+    }
+
+
+    // Threadpool of Consumers
+    if (num_of_threads > 1) {
+        int j;
+        for (j = 0; j < num_of_threads; j++) {
+            thpool_add_work(thpool, (void *) req_handler_thread, _eqp_req_handler);
+        }
+    } else {
+        ret = pthread_create(&req_thread, NULL, req_handler_thread, _eqp_req_handler);
+        if (ret) {
+            perror("failed to create req handler thread\n");
+            return ret;
+        }
+    }
+
+
+    ret = pthread_create(&disc_thread, NULL, disc_handler_thread, NULL);
+    if (ret) {
+        perror("failed to create disconnect handler thread\n");
+        return ret;
+    }
+    return ret;
+
+}
+
+int init_eqp_parameters() {
+    int ret;
+    struct ibv_port_attr port_attr;
     char str[INET_ADDRSTRLEN];
     struct addrinfo *res;
+    // Init parameters
+    hints.ai_flags |= RAI_PASSIVE;
+    qp_external = calloc(1, sizeof *qp_external);
+    qp_external->sin.ss_family = PF_INET;
+    qp_external->port = htobe16(port);
 
+    /**
+     * Binding part
+     */
+    //Get address info
     ret = getaddrinfo(server_src_addr, NULL, NULL, &res);
     if (ret) {
         printf("getaddrinfo failed (%s) - invalid hostname or IP address\n", gai_strerror(ret));
@@ -772,7 +873,8 @@ static int eqp_run_server() {
 
     ret = rdma_create_id(channel, &qp_external->cm_id, NULL, hints.ai_port_space);
     if (ret) {
-        perror("create rdma cm id request failed (for external QP)");
+        perror("create rdma cm id request failed (for external QP)\n");
+        ret = errno;
         return ret;
     }
     // Resolve sin family
@@ -787,20 +889,33 @@ static int eqp_run_server() {
     // Binding
     ret = rdma_bind_addr(qp_external->cm_id, (struct sockaddr *) &qp_external->sin);
     if (ret) {
-        perror("bind address failed (for external QP)");
+        perror("bind address failed (for external QP)\n");
+        ret = errno;
         goto out;
     }
-
+    DEBUG_LOG("binding succeeded \n");
 
     // Check if we could bind and get context
     if (qp_external->cm_id->verbs == NULL) {
-        perror("Can't extract context from id (for external QP)");
+        perror("Can't extract context from id (for external QP)\n");
+        ret = errno;
         goto out;
     }
 
+    DEBUG_LOG("Created context %p\n", qp_external->cm_id->verbs);
+
+    ret = rdma_listen(qp_external->cm_id, 0);
+    if (ret) {
+        perror("listening failed (for external QP)\n");
+        ret = errno;
+        goto out;
+    }
+    DEBUG_LOG("listening succeeded \n");
+
     // Query port
     if (ibv_query_port(qp_external->cm_id->verbs, qp_external->cm_id->port_num, &port_attr)) {
-        perror("ibv_query_port faild (for external QP)");
+        perror("ibv_query_port faild (for external QP)\n");
+        ret = errno;
         goto out;
     }
 
@@ -812,26 +927,174 @@ static int eqp_run_server() {
         qp_external->sgid_index = ibv_find_sgid_type(qp_external->cm_id->verbs, qp_external->cm_id->port_num,
                                                      IBV_GID_TYPE_ROCE_V2, qp_external->sin.ss_family);
     }
+    return ret;
 
+    out:
+    rdma_destroy_id(qp_external->cm_id);
+    return ret;
 
+}
 
+int init_eqp_cq_pd() {
+    int ret;
+    // Create PD
+    qp_external->pd = ibv_alloc_pd(qp_external->cm_id->verbs);
+    if (!qp_external->pd) {
+        perror("ibv_alloc_pd failed (for external QP)\n");
+        ret = errno;
+        goto out;
+    }
 
+    DEBUG_LOG("Created pd %p\n", qp_external->pd);
 
-
-
+    // Create CQ
+    qp_external->cq = ibv_create_cq(qp_external->cm_id->verbs, 100, NULL, NULL, 0);
+    if (!qp_external->cq) {
+        perror("ibv_create_cq failed (for external QP)\n");
+        ret = errno;
+        goto out;
+    }
+    DEBUG_LOG("Created cq %p\n", qp_external->cq);
+    init_qp_attr.recv_cq = qp_external->cq;
+    init_qp_attr.send_cq = qp_external->cq;
     return ret;
     out:
     rdma_destroy_id(qp_external->cm_id);
     return ret;
 
+}
+
+int setup_external_qp() {
+    int ret;
+    init_qp_attr.qp_context = qp_external->cm_id->verbs;
+    qp_external->qp = ibv_create_qp(qp_external->pd, &init_qp_attr);
+    if (!qp_external->qp) {
+        perror("failure creating QP (for external QP)");
+        ret = errno;
+        return ret;
+    }
+    DEBUG_LOG("Created QP %p\n", qp_external->qp);
+    return ret;
+}
+
+int modifying_qp_states() {
+
+    //TODO: this function must get event id and not qp_external->cm_id
+    int ret;
+    struct ibv_qp_attr qp_attr;
+    int qp_attr_mask;
+    qp_attr.qp_state = IBV_QPS_INIT;
+    DEBUG_LOG("QP state is: %s\n", getEnumState(qp_external->qp->state));
+    ret = rdma_init_qp_attr(qp_external->cm_id, &qp_attr, &qp_attr_mask);
+    if (ret) {
+        perror("Cant get QP attributes");
+        ret = errno;
+        goto out;
+    }
+
+    ret = ibv_modify_qp(qp_external->qp, &qp_attr, qp_attr_mask);
+    if (ret) {
+        perror("Cant modify QP to INIT");
+        ret = errno;
+        goto out;
+    }
+    DEBUG_LOG("QP state is: %s\n", getEnumState(qp_external->qp->state));
+
+    qp_attr.qp_state = IBV_QPS_RTR;
+    ret = rdma_init_qp_attr(qp_external->cm_id, &qp_attr, &qp_attr_mask);
+    if (ret) {
+        perror("Cant get QP attributes");
+        ret = errno;
+        goto out;
+    }
+
+
+    ret = ibv_modify_qp(qp_external->qp, &qp_attr, qp_attr_mask);
+    if (ret) {
+        perror("Cant modify QP to RTR");
+        ret = errno;
+        goto out;
+    }
+    DEBUG_LOG("QP state is: %s\n", getEnumState(qp_external->qp->state));
+    return ret;
+    out:
+    rdma_destroy_id(qp_external->cm_id);
+    return ret;
 
 }
+
+static int eqp_run_server() {
+
+    int ret;
+    DEBUG_LOG("Init requests & disconnect thread for external qp\n");
+    ret = init_eqp_requests();
+    if (ret) {
+        perror("Cannot init request for external QP");
+        ret = errno;
+        return ret;
+    }
+
+    DEBUG_LOG("Init parameters for connection\n");
+    ret = init_eqp_parameters();
+    if (ret) {
+        perror("Cannot init parameters for external QP");
+        ret = errno;
+        return ret;
+    }
+
+
+    DEBUG_LOG("Init CQ & PD for connection\n");
+    ret = init_eqp_cq_pd();
+    if (ret) {
+        perror("Cannot init CQ & PD for external QP");
+        ret = errno;
+        return ret;
+    }
+
+    DEBUG_LOG("Setup external QP\n");
+    ret = setup_external_qp();
+    if (ret) {
+        perror("Cannot setup external QP");
+        ret = errno;
+        return ret;
+    }
+
+
+    // If we use modify flag
+    if (modify_eqp) {
+        DEBUG_LOG("Modifying QP states..\n");
+        ret = modifying_qp_states();
+        if (ret) {
+            perror("Cannot modify external QP");
+            ret = errno;
+            return ret;
+        }
+    }
+    process_events(NULL);
+    // Need after REQUEST_CONNECT ....
+    // listen
+    // rdmacm_event_channel->CONNECT_REQUEST
+    // event->id
+    // modify {RTR,RTS} ->
+
+    return ret;
+
+}
+
+
+static struct option longopts[] = {
+        {"cq",    no_argument, NULL, 0},
+        {"pd",    no_argument, NULL, 0},
+        {"eqp",   no_argument, NULL, 0},
+        {"DEBUG", no_argument, NULL, 0},
+        {NULL, 0,              NULL, 0}
+};
 
 int main(int argc, char **argv) {
     int op, ret;
     int option_index = 0;
 
-    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:l:cq:pd:eqp:DEBUG:", longopts, &option_index)) != -1) {
+    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:l:m:cq:pd:eqp:DEBUG:", longopts, &option_index)) != -1) {
         switch (op) {
             case 's':
                 dst_addr = optarg;
@@ -860,6 +1123,9 @@ int main(int argc, char **argv) {
             case 'l':
                 server_src_addr = optarg;
                 break;
+            case 'm':
+                modify_eqp++;
+                break;
             case 0:
                 switch (option_index) {
                     case 0:
@@ -887,6 +1153,7 @@ int main(int argc, char **argv) {
                 printf("\t[-n num_of_threads(server side)]\n");
                 printf("\t[-d include disconnect test (0|1) (default is 1)]\n");
                 printf("\t[-l listening to ip (server side) \n");
+                printf("\t[-m modifying flag for changing QP state instead of random qpn [must include external QP (--eqp)]  \n");
                 printf("\t[--cq create CQ before connect (default is 0)]\n");
                 printf("\t[--pd create PD before connect (default is 0)]\n");
                 printf("\t[--eqp create external QP before connect (default is 0)]\n");
@@ -900,6 +1167,7 @@ int main(int argc, char **argv) {
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
 
+    // QP attributes
     init_qp_attr.cap.max_send_wr = 1;
     init_qp_attr.cap.max_recv_wr = 1;
     init_qp_attr.cap.max_send_sge = 1;
@@ -910,13 +1178,14 @@ int main(int argc, char **argv) {
     // Create channel
     channel = rdma_create_event_channel();
     if (!channel) {
+        perror("Failed to create channel\n");
         exit(1);
     }
-
     // Create thredapool for server side handling events
     if (num_of_threads) {
         thpool = thpool_init(num_of_threads);
     }
+    DEBUG_LOG("Threadpool was created with %d threads\n", num_of_threads);
 
     // External QP flag
     if (eqp) {
@@ -924,10 +1193,6 @@ int main(int argc, char **argv) {
         if (dst_addr) { // Client
 
         } else { //Server
-            hints.ai_flags |= RAI_PASSIVE;
-            qp_external = calloc(1, sizeof *qp_external);
-            qp_external->sin.ss_family = PF_INET;
-            qp_external->port = htobe16(port);
             ret = eqp_run_server();
         }
     } else { // Not external QP
