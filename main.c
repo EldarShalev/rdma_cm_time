@@ -58,8 +58,8 @@ static char *port = "7471";
 static char *dst_addr;
 static char *client_src_addr;
 static char *server_src_addr;
-static int timeout = 2000;
-static int retries = 2;
+static int timeout = 200;
+static int retries = 7;
 threadpool thpool;
 static int num_of_threads = 1;
 static int disconnection = 1;
@@ -68,6 +68,7 @@ static int pd = 0;
 static int eqp = 0;
 static int debug = 0;
 static int modify_eqp = 0;
+static volatile int qpn_counter = 1;
 pthread_mutex_t tp_lock;
 struct ibv_pd *pd_external_client;
 struct ibv_pd *pd_external_server;
@@ -87,7 +88,7 @@ enum step {
     STEP_REQ,
     STEP_DISCONNECT,
     STEP_DESTROY,
-    STEP_CNT
+    STEP_CNT,
 };
 
 static const char *step_str[] = {
@@ -146,6 +147,7 @@ static volatile int started[STEP_CNT];
 static volatile int completed[STEP_CNT];
 static struct ibv_qp_init_attr init_qp_attr;
 static struct rdma_conn_param conn_param;
+
 
 #define start_perf(n, s)    gettimeofday(&((n)->times[s][0]), NULL)
 #define end_perf(n, s)        gettimeofday(&((n)->times[s][1]), NULL)
@@ -267,30 +269,30 @@ static void conn_handler(struct node *n) {
     completed[STEP_CONNECT]++;
 }
 
+
 static void disc_handler(struct node *n) {
     end_perf(n, STEP_DISCONNECT);
     completed[STEP_DISCONNECT]++;
 }
 
-static void rping_init_conn_param(struct rping_cb *cb,
-                                  struct rdma_conn_param *conn_param) {
-    memset(conn_param, 0, sizeof(*conn_param));
-    conn_param->responder_resources = 1;
-    conn_param->initiator_depth = 1;
-    conn_param->retry_count = 7;
-    conn_param->rnr_retry_count = 7;
-    if (qp_external->qp)
-        conn_param->qp_num = qp_external->qp->qp_num;
-}
 
 static void _eqp_req_handler(struct rdma_cm_id *id) {
-    struct rdma_conn_param connParam;
-    connParam.qp_num = qp_external->qp->qp_num;
+    pthread_mutex_lock(&tp_lock);
     int ret;
-    ret = rdma_accept(id, &connParam);
+
+    conn_param.qp_num = qpn_counter;
+    qpn_counter++;
+    DEBUG_LOG("QPN number is %d, thread id = %d\n", conn_param.qp_num, pthread_self());
+    if (qpn_counter % 1000 == 0) {
+        DEBUG_LOG("Sleeping..\n");
+        sleepmilli(350);
+    }
+
+    ret = rdma_accept(id, &conn_param);
     if (ret) {
         perror("failure accepting");
     }
+    pthread_mutex_unlock(&tp_lock);
     return;
 }
 
@@ -302,12 +304,11 @@ static void __req_handler(struct rdma_cm_id *id) {
     } else {
         ret = rdma_create_qp(id, NULL, &init_qp_attr);
     }
-    //*printf("id is %d , recv cq is %d, send cq is %d \n", id,&(init_qp_attr.recv_cq),&(init_qp_attr.send_cq));
     if (ret) {
         perror("failure creating qp");
         goto err1;
     }
-
+    DEBUG_LOG("QPN number is %d, thread id = %d\n", id->qp->qp_num, pthread_self());
     ret = rdma_accept(id, NULL);
     if (ret) {
         perror("failure accepting");
@@ -323,11 +324,10 @@ static void __req_handler(struct rdma_cm_id *id) {
     return;
 }
 
-static void *req_handler_thread(void (*f)(struct rdma_cm_id *)) {
+static void *req_handler_thread(void (*f)(void *)) {
     struct list_head_cm *work;
     do {
         pthread_mutex_lock(&req_work.lock);
-        //*printf("CONSUMER thread id = %d\n", pthread_self());
         if (__list_empty(&req_work))
             pthread_cond_wait(&req_work.cond, &req_work.lock);
         work = __list_remove_head(&req_work);
@@ -347,7 +347,8 @@ static void *disc_handler_thread(void *arg) {
         work = __list_remove_head(&disc_work);
         pthread_mutex_unlock(&disc_work.lock);
         rdma_disconnect(work->id);
-        rdma_destroy_qp(work->id);
+        if (work->id->qp)
+            rdma_destroy_qp(work->id);
         rdma_destroy_id(work->id);
         free(work);
     } while (1);
@@ -367,7 +368,6 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event) {
             break;
         case RDMA_CM_EVENT_CONNECT_REQUEST:
             started[STEP_REQ]++;
-            //*printf("PRODUCER thread id = %d\n", pthread_self());
             request = malloc(sizeof *request);
             if (!request) {
                 perror("out of memory accepting connect request");
@@ -383,6 +383,7 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event) {
             }
             break;
         case RDMA_CM_EVENT_ESTABLISHED:
+            //DEBUG_LOG("Connection Established!\n");
             if (n)
                 conn_handler(n);
             break;
@@ -410,8 +411,10 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event) {
         case RDMA_CM_EVENT_REJECTED:
             printf("event: %s, error: %d\n",
                    rdma_event_str(event->event), event->status);
-            conn_handler(n);
-            n->error = 1;
+            if (n) {
+                conn_handler(n);
+                n->error = 1;
+            }
             break;
         case RDMA_CM_EVENT_DISCONNECTED:
             if (!n) {
@@ -432,6 +435,10 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event) {
         case RDMA_CM_EVENT_DEVICE_REMOVAL:
             /* Cleanup will occur after test completes. */
             break;
+        case RDMA_CM_EVENT_CONNECT_RESPONSE:
+            if (n)
+                conn_handler(n);
+            break;
         default:
             break;
     }
@@ -440,23 +447,27 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event) {
 
 static int alloc_nodes(void) {
     int ret, i;
-    if (pthread_mutex_init(&tp_lock, NULL) != 0) {
-        printf("\n thread pool mutex init has failed\n");
-        return 1;
-    }
+
     nodes = calloc(sizeof *nodes, connections);
     if (!nodes)
         return -ENOMEM;
+    if (eqp) {
+        qp_external = calloc(sizeof *qp_external, connections);
+        if (!qp_external)
+            return -ENOMEM;
+    }
 
     printf("creating id\n");
     start_time(STEP_CREATE_ID);
     for (i = 0; i < connections; i++) {
         start_perf(&nodes[i], STEP_CREATE_ID);
         if (dst_addr) {
-            ret = rdma_create_id(channel, &nodes[i].id, &nodes[i],
-                                 hints.ai_port_space);
+            ret = rdma_create_id(channel, &nodes[i].id, &nodes[i], hints.ai_port_space);
             if (ret)
                 goto err;
+            if (eqp) {
+                qp_external[i].cm_id = nodes[i].id;
+            }
         }
         end_perf(&nodes[i], STEP_CREATE_ID);
     }
@@ -545,6 +556,11 @@ static int run_server(void) {
 
     INIT_LIST(&req_work.list);
     INIT_LIST(&disc_work.list);
+
+    if (pthread_mutex_init(&tp_lock, NULL) != 0) {
+        printf("\n thread pool mutex init has failed\n");
+        return 1;
+    }
     ret = pthread_mutex_init(&req_work.lock, NULL);
     if (ret) {
         perror("initializing mutex for req work\n");
@@ -577,7 +593,7 @@ static int run_server(void) {
             thpool_add_work(thpool, (void *) req_handler_thread, __req_handler);
         }
     } else {
-        ret = pthread_create(&req_thread, NULL, req_handler_thread(__req_handler), NULL);
+        ret = pthread_create(&req_thread, NULL, req_handler_thread, __req_handler);
         if (ret) {
             perror("failed to create req handler thread\n");
             return ret;
@@ -632,6 +648,7 @@ static int run_server(void) {
         goto out;
     }
 
+    DEBUG_LOG("Waiting for client to connect..");
     process_events(NULL);
     out:
     rdma_destroy_id(listen_id);
@@ -695,12 +712,19 @@ static int run_client(void) {
     while (started[STEP_RESOLVE_ADDR] != completed[STEP_RESOLVE_ADDR]) sched_yield();
     end_time(STEP_RESOLVE_ADDR);
 
-    // CQ Flag
+    // External CQ Flag
     if (cq) {
         cq_external_client = ibv_create_cq(nodes[0].id->verbs, 100, NULL, NULL, 0);
+        if (!cq_external_client) {
+            perror("ibv_create_cq failed (for external QP)\n");
+            ret = errno;
+            return ret;
+        }
+        DEBUG_LOG("Created cq %p\n", cq_external_client);
         init_qp_attr.recv_cq = cq_external_client;
         init_qp_attr.send_cq = cq_external_client;
     }
+
 
     // External PD flag
     if (pd) {
@@ -709,6 +733,13 @@ static int run_client(void) {
             fprintf(stderr, "Error, ibv_alloc_pd() failed\n");
             return -1;
         }
+        DEBUG_LOG("Created pd %p\n", pd_external_client);
+    }
+
+    // External QP flag
+    if (eqp) {
+        qp_external->cq = cq_external_client;
+        qp_external->pd = pd_external_client;
 
     }
     printf("resolving route\n");
@@ -729,47 +760,89 @@ static int run_client(void) {
     while (started[STEP_RESOLVE_ROUTE] != completed[STEP_RESOLVE_ROUTE]) sched_yield();
     end_time(STEP_RESOLVE_ROUTE);
 
-    printf("creating qp\n");
-    start_time(STEP_CREATE_QP);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-        start_perf(&nodes[i], STEP_CREATE_QP);
-        if (pd) {
-            ret = rdma_create_qp(nodes[i].id, pd_external_client, &init_qp_attr);
-        } else {
-            ret = rdma_create_qp(nodes[i].id, NULL, &init_qp_attr);
+    if (!eqp) {
+        printf("creating qp\n");
+        start_time(STEP_CREATE_QP);
+        for (i = 0; i < connections; i++) {
+            if (nodes[i].error)
+                continue;
+            start_perf(&nodes[i], STEP_CREATE_QP);
+            if (pd) {
+                ret = rdma_create_qp(nodes[i].id, pd_external_client, &init_qp_attr);
+            } else {
+                ret = rdma_create_qp(nodes[i].id, NULL, &init_qp_attr);
+            }
+            if (ret) {
+                perror("failure creating qp");
+                nodes[i].error = 1;
+                continue;
+            }
+            end_perf(&nodes[i], STEP_CREATE_QP);
         }
-        if (ret) {
-            perror("failure creating qp");
-            nodes[i].error = 1;
-            continue;
-        }
-        end_perf(&nodes[i], STEP_CREATE_QP);
+        end_time(STEP_CREATE_QP);
     }
-    end_time(STEP_CREATE_QP);
 
     printf("connecting\n");
     start_time(STEP_REQ);
     start_time(STEP_CONNECT);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-
-        start_perf(&nodes[i], STEP_REQ);
-        start_perf(&nodes[i], STEP_CONNECT);
-        ret = rdma_connect(nodes[i].id, &conn_param);
-        if (ret) {
-            perror("failure connecting");
-            nodes[i].error = 1;
-            continue;
+    if (eqp) {
+        struct rdma_conn_param conn_param_test;
+        memset(&conn_param_test, 0, sizeof(conn_param_test));
+        conn_param_test.responder_resources = 1;
+        conn_param_test.initiator_depth = 1;
+        conn_param_test.retry_count = 7;
+        conn_param_test.rnr_retry_count = 7;
+        for (i = 0; i < connections; i++) {
+            if (nodes[i].error)
+                continue;
+            start_perf(&nodes[i], STEP_REQ);
+            start_perf(&nodes[i], STEP_CONNECT);
+            conn_param_test.qp_num = i + 1;
+            ret = rdma_connect(qp_external[i].cm_id, &conn_param_test);
+            if (ret) {
+                perror("failure connecting");
+                nodes[i].error = 1;
+                continue;
+            }
+            started[STEP_CONNECT]++;
         }
-        started[STEP_CONNECT]++;
-    }
-    end_time(STEP_REQ);
-    while (started[STEP_CONNECT] != completed[STEP_CONNECT]) sched_yield();
-    end_time(STEP_CONNECT);
+        end_time(STEP_REQ);
+    } else {
+        for (i = 0; i < connections; i++) {
+            if (nodes[i].error)
+                continue;
 
+            start_perf(&nodes[i], STEP_REQ);
+            start_perf(&nodes[i], STEP_CONNECT);
+            ret = rdma_connect(nodes[i].id, &conn_param);
+            if (ret) {
+                perror("failure connecting");
+                nodes[i].error = 1;
+                continue;
+            }
+            started[STEP_CONNECT]++;
+        }
+        end_time(STEP_REQ);
+    }
+    while (started[STEP_CONNECT] != completed[STEP_CONNECT]) sched_yield();
+    if (!eqp) {
+        end_time(STEP_CONNECT);
+    }
+
+    if (eqp) {
+        for (i = 0; i < connections; i++) {
+            ret = rdma_establish(qp_external[i].cm_id);
+            if (ret) {
+                perror("rdma_establish");
+                return ret;
+            }
+
+        }
+        // Connection time include rdma_connect & rdma_establish
+        end_time(STEP_CONNECT);
+        // In order to avoid race between rdma_establish to rdma_disconnect
+        sleepmilli(connections / 2);
+    }
     if (disconnection) {
         printf("disconnecting\n");
         start_time(STEP_DISCONNECT);
@@ -793,6 +866,17 @@ int init_eqp_requests() {
     int ret;
     INIT_LIST(&req_work.list);
     INIT_LIST(&disc_work.list);
+    if (pthread_mutex_init(&tp_lock, NULL) != 0) {
+        printf("\n thread pool mutex init has failed\n");
+        return 1;
+    }
+    memset(&conn_param, 0, sizeof(conn_param));
+    conn_param.responder_resources = 1;
+    conn_param.initiator_depth = 1;
+    conn_param.retry_count = 7;
+    conn_param.rnr_retry_count = 7;
+    conn_param.qp_num = qpn_counter;
+
     ret = pthread_mutex_init(&req_work.lock, NULL);
     if (ret) {
         perror("initializing mutex for req work\n");
@@ -846,30 +930,18 @@ int init_eqp_parameters() {
     int ret;
     struct ibv_port_attr port_attr;
     char str[INET_ADDRSTRLEN];
-    struct addrinfo *res;
-    // Init parameters
+
     hints.ai_flags |= RAI_PASSIVE;
     qp_external = calloc(1, sizeof *qp_external);
     qp_external->sin.ss_family = PF_INET;
     qp_external->port = htobe16(port);
 
-    /**
-     * Binding part
-     */
-    //Get address info
-    ret = getaddrinfo(server_src_addr, NULL, NULL, &res);
+
+    ret = get_rdma_addr(server_src_addr, dst_addr, port, &hints, &rai);
     if (ret) {
-        printf("getaddrinfo failed (%s) - invalid hostname or IP address\n", gai_strerror(ret));
-        return ret;
+        printf("getrdmaaddr error: %s\n", gai_strerror(ret));
+        goto out;
     }
-
-    if (res->ai_family == PF_INET)
-        memcpy(&qp_external->sin, res->ai_addr, sizeof(struct sockaddr_in));
-    else if (res->ai_family == PF_INET6)
-        memcpy(&qp_external->sin, res->ai_addr, sizeof(struct sockaddr_in6));
-    else
-        ret = -1;
-
 
     ret = rdma_create_id(channel, &qp_external->cm_id, NULL, hints.ai_port_space);
     if (ret) {
@@ -877,17 +949,8 @@ int init_eqp_parameters() {
         ret = errno;
         return ret;
     }
-    // Resolve sin family
-    if (qp_external->sin.ss_family == AF_INET) {
-        ((struct sockaddr_in *) &qp_external->sin)->sin_port = qp_external->port;
-        inet_ntop(AF_INET, &(((struct sockaddr_in *) &qp_external->sin)->sin_addr), str, INET_ADDRSTRLEN);
-    } else {
-        ((struct sockaddr_in6 *) &qp_external->sin)->sin6_port = qp_external->port;
-        inet_ntop(AF_INET6, &(((struct sockaddr_in6 *) &qp_external->sin)->sin6_addr), str, INET_ADDRSTRLEN);
-    }
 
-    // Binding
-    ret = rdma_bind_addr(qp_external->cm_id, (struct sockaddr *) &qp_external->sin);
+    ret = rdma_bind_addr(qp_external->cm_id, rai->ai_src_addr);
     if (ret) {
         perror("bind address failed (for external QP)\n");
         ret = errno;
@@ -895,7 +958,6 @@ int init_eqp_parameters() {
     }
     DEBUG_LOG("binding succeeded \n");
 
-    // Check if we could bind and get context
     if (qp_external->cm_id->verbs == NULL) {
         perror("Can't extract context from id (for external QP)\n");
         ret = errno;
@@ -904,22 +966,13 @@ int init_eqp_parameters() {
 
     DEBUG_LOG("Created context %p\n", qp_external->cm_id->verbs);
 
-    ret = rdma_listen(qp_external->cm_id, 0);
-    if (ret) {
-        perror("listening failed (for external QP)\n");
-        ret = errno;
-        goto out;
-    }
-    DEBUG_LOG("listening succeeded \n");
 
-    // Query port
     if (ibv_query_port(qp_external->cm_id->verbs, qp_external->cm_id->port_num, &port_attr)) {
         perror("ibv_query_port faild (for external QP)\n");
         ret = errno;
         goto out;
     }
 
-    // Setting mtu
     qp_external->mtu = port_attr.active_mtu;
 
     if (port_attr.link_layer == IBV_LINK_LAYER_ETHERNET) {
@@ -937,7 +990,6 @@ int init_eqp_parameters() {
 
 int init_eqp_cq_pd() {
     int ret;
-    // Create PD
     qp_external->pd = ibv_alloc_pd(qp_external->cm_id->verbs);
     if (!qp_external->pd) {
         perror("ibv_alloc_pd failed (for external QP)\n");
@@ -947,7 +999,6 @@ int init_eqp_cq_pd() {
 
     DEBUG_LOG("Created pd %p\n", qp_external->pd);
 
-    // Create CQ
     qp_external->cq = ibv_create_cq(qp_external->cm_id->verbs, 100, NULL, NULL, 0);
     if (!qp_external->cq) {
         perror("ibv_create_cq failed (for external QP)\n");
@@ -964,64 +1015,6 @@ int init_eqp_cq_pd() {
 
 }
 
-int setup_external_qp() {
-    int ret;
-    init_qp_attr.qp_context = qp_external->cm_id->verbs;
-    qp_external->qp = ibv_create_qp(qp_external->pd, &init_qp_attr);
-    if (!qp_external->qp) {
-        perror("failure creating QP (for external QP)");
-        ret = errno;
-        return ret;
-    }
-    DEBUG_LOG("Created QP %p\n", qp_external->qp);
-    return ret;
-}
-
-int modifying_qp_states() {
-
-    //TODO: this function must get event id and not qp_external->cm_id
-    int ret;
-    struct ibv_qp_attr qp_attr;
-    int qp_attr_mask;
-    qp_attr.qp_state = IBV_QPS_INIT;
-    DEBUG_LOG("QP state is: %s\n", getEnumState(qp_external->qp->state));
-    ret = rdma_init_qp_attr(qp_external->cm_id, &qp_attr, &qp_attr_mask);
-    if (ret) {
-        perror("Cant get QP attributes");
-        ret = errno;
-        goto out;
-    }
-
-    ret = ibv_modify_qp(qp_external->qp, &qp_attr, qp_attr_mask);
-    if (ret) {
-        perror("Cant modify QP to INIT");
-        ret = errno;
-        goto out;
-    }
-    DEBUG_LOG("QP state is: %s\n", getEnumState(qp_external->qp->state));
-
-    qp_attr.qp_state = IBV_QPS_RTR;
-    ret = rdma_init_qp_attr(qp_external->cm_id, &qp_attr, &qp_attr_mask);
-    if (ret) {
-        perror("Cant get QP attributes");
-        ret = errno;
-        goto out;
-    }
-
-
-    ret = ibv_modify_qp(qp_external->qp, &qp_attr, qp_attr_mask);
-    if (ret) {
-        perror("Cant modify QP to RTR");
-        ret = errno;
-        goto out;
-    }
-    DEBUG_LOG("QP state is: %s\n", getEnumState(qp_external->qp->state));
-    return ret;
-    out:
-    rdma_destroy_id(qp_external->cm_id);
-    return ret;
-
-}
 
 static int eqp_run_server() {
 
@@ -1051,31 +1044,16 @@ static int eqp_run_server() {
         return ret;
     }
 
-    DEBUG_LOG("Setup external QP\n");
-    ret = setup_external_qp();
+    ret = rdma_listen(qp_external->cm_id, 0);
     if (ret) {
-        perror("Cannot setup external QP");
+        perror("listening failed (for external QP)\n");
         ret = errno;
         return ret;
     }
-
-
-    // If we use modify flag
-    if (modify_eqp) {
-        DEBUG_LOG("Modifying QP states..\n");
-        ret = modifying_qp_states();
-        if (ret) {
-            perror("Cannot modify external QP");
-            ret = errno;
-            return ret;
-        }
-    }
+    DEBUG_LOG("listening succeeded \n");
+    DEBUG_LOG("Waiting for client to connect..\n");
     process_events(NULL);
-    // Need after REQUEST_CONNECT ....
-    // listen
-    // rdmacm_event_channel->CONNECT_REQUEST
-    // event->id
-    // modify {RTR,RTS} ->
+
 
     return ret;
 
@@ -1094,7 +1072,7 @@ int main(int argc, char **argv) {
     int op, ret;
     int option_index = 0;
 
-    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:l:m:cq:pd:eqp:DEBUG:", longopts, &option_index)) != -1) {
+    while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:l:cq:pd:eqp:DEBUG:", longopts, &option_index)) != -1) {
         switch (op) {
             case 's':
                 dst_addr = optarg;
@@ -1123,9 +1101,6 @@ int main(int argc, char **argv) {
             case 'l':
                 server_src_addr = optarg;
                 break;
-            case 'm':
-                modify_eqp++;
-                break;
             case 0:
                 switch (option_index) {
                     case 0:
@@ -1139,6 +1114,7 @@ int main(int argc, char **argv) {
                         break;
                     case 3:
                         debug++;
+                        break;
                 }
                 break;
 
@@ -1153,7 +1129,6 @@ int main(int argc, char **argv) {
                 printf("\t[-n num_of_threads(server side)]\n");
                 printf("\t[-d include disconnect test (0|1) (default is 1)]\n");
                 printf("\t[-l listening to ip (server side) \n");
-                printf("\t[-m modifying flag for changing QP state instead of random qpn [must include external QP (--eqp)]  \n");
                 printf("\t[--cq create CQ before connect (default is 0)]\n");
                 printf("\t[--pd create PD before connect (default is 0)]\n");
                 printf("\t[--eqp create external QP before connect (default is 0)]\n");
@@ -1187,23 +1162,19 @@ int main(int argc, char **argv) {
     }
     DEBUG_LOG("Threadpool was created with %d threads\n", num_of_threads);
 
-    // External QP flag
-    if (eqp) {
-        // Need more attributes for external QP
-        if (dst_addr) { // Client
-
-        } else { //Server
+    if (dst_addr) {
+        alloc_nodes();
+        ret = run_client(); // both for external qp and reguler flow
+    } else {
+        if (eqp) {
             ret = eqp_run_server();
-        }
-    } else { // Not external QP
-        if (dst_addr) {
-            alloc_nodes();
-            ret = run_client();
         } else {
             hints.ai_flags |= RAI_PASSIVE;
             ret = run_server();
         }
+
     }
+
 
     cleanup_nodes();
     rdma_destroy_event_channel(channel);
