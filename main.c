@@ -472,6 +472,9 @@ static void cleanup_nodes(void) {
         start_perf(&nodes[i], STEP_DESTROY);
         if (nodes[i].id)
             rdma_destroy_id(nodes[i].id);
+        if (eqp) {
+            rdma_destroy_id(qp_external[i].cm_id);
+        }
         end_perf(&nodes[i], STEP_DESTROY);
     }
     end_time(STEP_DESTROY);
