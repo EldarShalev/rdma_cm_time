@@ -155,28 +155,6 @@ static struct rdma_conn_param conn_param;
 #define end_time(s)        gettimeofday(&times[s][1], NULL)
 
 
-const char *getEnumState(enum ibv_qp_state state) {
-    switch (state) {
-        case IBV_QPS_RESET:
-            return "IBV_QPS_RESET";
-        case IBV_QPS_INIT:
-            return "IBV_QPS_INIT";
-        case IBV_QPS_RTR:
-            return "IBV_QPS_RTR";
-        case IBV_QPS_RTS:
-            return "IBV_QPS_RTS";
-        case IBV_QPS_SQD:
-            return "IBV_QPS_SQD";
-        case IBV_QPS_SQE:
-            return "IBV_QPS_SQE";
-        case IBV_QPS_ERR:
-            return "IBV_QPS_ERR";
-        case IBV_QPS_UNKNOWN:
-            return "IBV_QPS_UNKNOWN";
-
-    }
-}
-
 static inline void __list_delete(struct list_head_cm *list) {
     struct list_head_cm *prev, *next;
     prev = list->prev;
@@ -628,9 +606,14 @@ static int run_server(void) {
     // External CQ Flag
     if (cq) {
         cq_external_server = ibv_create_cq(listen_id->verbs, 100, NULL, NULL, 0);
+        if (!cq_external_server) {
+            perror("ibv_create_cq failed \n");
+            ret = errno;
+            goto out;
+        }
         init_qp_attr.recv_cq = cq_external_server;
         init_qp_attr.send_cq = cq_external_server;
-
+        DEBUG_LOG("Created cq %p\n", cq_external_server);
     }
     // External PD flag
     if (pd) {
@@ -639,6 +622,7 @@ static int run_server(void) {
             fprintf(stderr, "Error, ibv_alloc_pd() failed\n");
             goto out;
         }
+        DEBUG_LOG("Created pd %p\n", pd_external_server);
 
     }
 
