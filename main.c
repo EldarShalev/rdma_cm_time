@@ -91,6 +91,32 @@ enum step {
     STEP_CNT,
 };
 
+const char *getEnumStep(enum step enumstep) {
+    switch (enumstep) {
+        case STEP_CREATE_ID:
+            return "STEP_CREATE_ID";
+        case STEP_BIND:
+            return "STEP_BIND";
+        case STEP_RESOLVE_ADDR:
+            return "STEP_RESOLVE_ADDR";
+        case STEP_RESOLVE_ROUTE:
+            return "STEP_RESOLVE_ROUTE";
+        case STEP_CREATE_QP:
+            return "STEP_CREATE_QP";
+        case STEP_CONNECT:
+            return "STEP_CONNECT";
+        case STEP_REQ:
+            return "STEP_REQ";
+        case STEP_DISCONNECT:
+            return "STEP_DISCONNECT";
+        case STEP_DESTROY:
+            return "STEP_DESTROY";
+        default:
+            return "Not Found Step";
+
+    }
+}
+
 static const char *step_str[] = {
         "create id",
         "bind addr",
@@ -197,10 +223,38 @@ static float diff_us(struct timeval *end, struct timeval *start) {
     return (end->tv_sec - start->tv_sec) * 1000000. + (end->tv_usec - start->tv_usec);
 }
 
+void swap(float *a, float *b) {
+    float t = *a;
+    *a = *b;
+    *b = t;
+}
+
+int partition(float arr[], int low, int high) {
+    float pivot = arr[high];    // pivot
+    int i = (low - 1);
+
+    for (int j = low; j <= high - 1; j++) {
+        if (arr[j] < pivot) {
+            i++;
+            swap(&arr[i], &arr[j]);
+        }
+    }
+    swap(&arr[i + 1], &arr[high]);
+    return (i + 1);
+}
+
+void quickSort(float arr[], int low, int high) {
+    if (low < high) {
+        int pi = partition(arr, low, high);
+        quickSort(arr, low, pi - 1);
+        quickSort(arr, pi + 1, high);
+    }
+}
+
 static void show_perf(void) {
+    float medians[STEP_CNT][connections];
     int c, i;
     float us, max[STEP_CNT], min[STEP_CNT];
-
     for (i = 0; i < STEP_CNT; i++) {
         max[i] = 0;
         min[i] = 999999999.;
@@ -208,6 +262,7 @@ static void show_perf(void) {
             if (!zero_time(&nodes[c].times[i][0]) &&
                 !zero_time(&nodes[c].times[i][1])) {
                 us = diff_us(&nodes[c].times[i][1], &nodes[c].times[i][0]);
+                medians[i][c] = (float) (us / 1000.);
                 if (us > max[i])
                     max[i] = us;
                 if (us < min[i])
@@ -216,14 +271,20 @@ static void show_perf(void) {
         }
     }
 
-    printf("step              total ms     max ms     min us  us / conn\n");
+
+    for (i = 0; i < STEP_CNT; i++) {
+        DEBUG_LOG("Sort has started for %s\n", getEnumStep(i));
+        quickSort(medians[i], 0, connections - 1);
+    }
+
+    printf("step\t\ttotal ms\t\tmax ms\t\tmin us\t\tus / conn\t\tmedian(ms)\n");
     for (i = 0; i < STEP_CNT; i++) {
         if (i == STEP_BIND && !client_src_addr)
             continue;
 
         us = diff_us(&times[i][1], &times[i][0]);
-        printf("%-13s: %11.2f%11.2f%11.2f%11.2f\n", step_str[i], us / 1000.,
-               max[i] / 1000., min[i], us / connections);
+        printf("%-13s:\t%11.2f\t%11.2f\t%11.2f\t%11.2f\t\t%11.2f\n", step_str[i], us / 1000.,
+               max[i] / 1000., min[i], us / connections, medians[i][connections / 2]);
     }
 }
 
