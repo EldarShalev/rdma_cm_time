@@ -263,14 +263,16 @@ static void _eqp_req_handler(struct rdma_cm_id *id) {
     DEBUG_LOG("QPN number is %d, thread id = %d\n", conn_param.qp_num, pthread_self());
     if (qpn_counter % 1000 == 0) {
         DEBUG_LOG("Sleeping..\n");
-        sleepmilli(350);
+        sleepmilli(300);
     }
-
+    if (num_of_threads > 1) {
+        sleepmilli(1);
+    }
+    pthread_mutex_unlock(&tp_lock);
     ret = rdma_accept(id, &conn_param);
     if (ret) {
         perror("failure accepting");
     }
-    pthread_mutex_unlock(&tp_lock);
     return;
 }
 
@@ -835,7 +837,9 @@ static int run_client(void) {
                 continue;
             start_perf(&nodes[i], STEP_DISCONNECT);
             rdma_disconnect(nodes[i].id);
-            rdma_destroy_qp(nodes[i].id);
+            if (!eqp) {
+                rdma_destroy_qp(nodes[i].id);
+            }
             started[STEP_DISCONNECT]++;
         }
         while (started[STEP_DISCONNECT] != completed[STEP_DISCONNECT]) sched_yield();
