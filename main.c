@@ -294,7 +294,7 @@ static void addr_handler(struct node *n) {
 }
 
 static void route_handler(struct node *n) {
-    end_perf(n, STEP_RESOLVE_ROUTE);
+    // end_perf(n, STEP_RESOLVE_ROUTE);
     completed[STEP_RESOLVE_ROUTE]++;
 }
 
@@ -324,17 +324,17 @@ static void _eqp_req_handler(struct rdma_cm_id *id) {
     DEBUG_LOG("QPN number is %d, thread id = %d\n", conn_param.qp_num, pthread_self());
     if (qpn_counter % 1000 == 0) {
         DEBUG_LOG("Sleeping..\n");
-        sleepmilli(300);
+        usleep(100);
+        sched_yield();
     }
     if (num_of_threads > 1) {
-        sleepmilli(1);
+        usleep(200);
     }
     pthread_mutex_unlock(&tp_lock);
     ret = rdma_accept(id, &conn_param);
     if (ret) {
         perror("failure accepting");
     }
-    return;
 }
 
 
@@ -637,7 +637,7 @@ static int run_server(void) {
             thpool_add_work(thpool, (void *) req_handler_thread, __req_handler);
         }
     } else {
-        ret = pthread_create(&req_thread, NULL, req_handler_thread, __req_handler);
+        ret = pthread_create(&req_thread, NULL, (void *) req_handler_thread, __req_handler);
         if (ret) {
             perror("failed to create req handler thread\n");
             return ret;
@@ -698,17 +698,53 @@ static int run_server(void) {
         goto out;
     }
 
-    DEBUG_LOG("Waiting for client to connect..");
+    DEBUG_LOG("Waiting for client to connect..\n");
     process_events(NULL);
     out:
     rdma_destroy_id(listen_id);
     return ret;
 }
 
+static void resolve_route_thread(int f) {
+    int num_of_resolves;
+    int iteration = f;
+    if (connections > num_of_threads) {
+        num_of_resolves = connections / num_of_threads;
+    } else {
+        num_of_resolves = connections;
+    }
+    int j = iteration * num_of_resolves;
+
+    int ret;
+    for (; j < iteration * num_of_resolves + num_of_resolves; j++) {
+        printf("working on node number %d with thread id = %d\n", j, pthread_self());
+        if (nodes[j].error)
+            continue;
+        nodes[j].retries = retries;
+        start_perf(&nodes[j], STEP_RESOLVE_ROUTE);
+        ret = rdma_resolve_route(nodes[j].id, timeout);
+        if (ret) {
+            perror("failure resolving route");
+            nodes[j].error = 1;
+            continue;
+        }
+        end_perf(&nodes[j], STEP_RESOLVE_ROUTE);
+        pthread_mutex_lock(&tp_lock);
+        started[STEP_RESOLVE_ROUTE]++;
+        pthread_mutex_unlock(&tp_lock);
+    }
+
+
+}
+
 static int run_client(void) {
     pthread_t event_thread;
     int i, ret;
 
+    if (pthread_mutex_init(&tp_lock, NULL) != 0) {
+        printf("\n thread pool mutex init has failed\n");
+        return 1;
+    }
     ret = get_rdma_addr(client_src_addr, dst_addr, port, &hints, &rai);
     if (ret) {
         printf("getaddrinfo error: %s\n", gai_strerror(ret));
@@ -792,24 +828,35 @@ static int run_client(void) {
         qp_external->pd = pd_external_client;
 
     }
-    printf("resolving route\n");
-    start_time(STEP_RESOLVE_ROUTE);
-    for (i = 0; i < connections; i++) {
-        if (nodes[i].error)
-            continue;
-        nodes[i].retries = retries;
-        start_perf(&nodes[i], STEP_RESOLVE_ROUTE);
-        ret = rdma_resolve_route(nodes[i].id, timeout);
-        if (ret) {
-            perror("failure resolving route");
-            nodes[i].error = 1;
-            continue;
-        }
-        started[STEP_RESOLVE_ROUTE]++;
-    }
-    while (started[STEP_RESOLVE_ROUTE] != completed[STEP_RESOLVE_ROUTE]) sched_yield();
-    end_time(STEP_RESOLVE_ROUTE);
 
+    if (num_of_threads > 1) {
+        printf("resolving route with %d threads \n", num_of_threads);
+        start_time(STEP_RESOLVE_ROUTE);
+        int j;
+        for (j = 0; j < num_of_threads; j++) {
+            thpool_add_work(thpool, resolve_route_thread, j);
+        }
+    } else {
+        printf("resolving route - single thread\n");
+        start_time(STEP_RESOLVE_ROUTE);
+        for (i = 0; i < connections; i++) {
+            if (nodes[i].error)
+                continue;
+            nodes[i].retries = retries;
+            start_perf(&nodes[i], STEP_RESOLVE_ROUTE);
+            ret = rdma_resolve_route(nodes[i].id, timeout);
+            if (ret) {
+                perror("failure resolving route");
+                nodes[i].error = 1;
+                continue;
+            }
+            end_perf(&nodes[i], STEP_RESOLVE_ROUTE);
+            started[STEP_RESOLVE_ROUTE]++;
+        }
+    }
+
+    while (connections != completed[STEP_RESOLVE_ROUTE]) sched_yield();
+    end_time(STEP_RESOLVE_ROUTE);
     if (!eqp) {
         printf("creating qp\n");
         start_time(STEP_CREATE_QP);
@@ -847,6 +894,7 @@ static int run_client(void) {
                 continue;
             start_perf(&nodes[i], STEP_REQ);
             start_perf(&nodes[i], STEP_CONNECT);
+            // Fictitious  qp number
             conn_param_test.qp_num = i + 1;
             ret = rdma_connect(qp_external[i].cm_id, &conn_param_test);
             if (ret) {
@@ -961,7 +1009,7 @@ int init_eqp_requests() {
             thpool_add_work(thpool, (void *) req_handler_thread, _eqp_req_handler);
         }
     } else {
-        ret = pthread_create(&req_thread, NULL, req_handler_thread, _eqp_req_handler);
+        ret = pthread_create(&req_thread, NULL, (void *) req_handler_thread, _eqp_req_handler);
         if (ret) {
             perror("failed to create req handler thread\n");
             return ret;
