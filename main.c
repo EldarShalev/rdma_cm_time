@@ -77,7 +77,6 @@ struct ibv_cq *cq_external_server;
 
 #define DEBUG_LOG if (debug) printf
 
-
 enum step {
     STEP_CREATE_ID,
     STEP_BIND,
@@ -324,11 +323,11 @@ static void _eqp_req_handler(struct rdma_cm_id *id) {
     DEBUG_LOG("QPN number is %d, thread id = %d\n", conn_param.qp_num, pthread_self());
     if (qpn_counter % 1000 == 0) {
         DEBUG_LOG("Sleeping..\n");
-        usleep(100);
         sched_yield();
     }
     if (num_of_threads > 1) {
-        usleep(200);
+        DEBUG_LOG("Sleeping..\n");
+        usleep(100);
     }
     pthread_mutex_unlock(&tp_lock);
     ret = rdma_accept(id, &conn_param);
@@ -833,8 +832,9 @@ static int run_client(void) {
         start_time(STEP_RESOLVE_ROUTE);
         int j;
         for (j = 0; j < num_of_threads; j++) {
-            thpool_add_work(thpool, (void*)resolve_route_thread,  j);
+            thpool_add_work(thpool, (void *) resolve_route_thread, j);
         }
+        while (connections != completed[STEP_RESOLVE_ROUTE]) sched_yield();
     } else {
         printf("resolving route - single thread\n");
         start_time(STEP_RESOLVE_ROUTE);
@@ -849,12 +849,11 @@ static int run_client(void) {
                 nodes[i].error = 1;
                 continue;
             }
-            //end_perf(&nodes[i], STEP_RESOLVE_ROUTE);
             started[STEP_RESOLVE_ROUTE]++;
         }
+        while (started[STEP_RESOLVE_ROUTE] != completed[STEP_RESOLVE_ROUTE]) sched_yield();
     }
 
-    while (connections != completed[STEP_RESOLVE_ROUTE]) sched_yield();
     end_time(STEP_RESOLVE_ROUTE);
     if (!eqp) {
         printf("creating qp\n");
