@@ -294,7 +294,7 @@ static void addr_handler(struct node *n) {
 }
 
 static void route_handler(struct node *n) {
-    // end_perf(n, STEP_RESOLVE_ROUTE);
+    end_perf(n, STEP_RESOLVE_ROUTE);
     completed[STEP_RESOLVE_ROUTE]++;
 }
 
@@ -424,7 +424,6 @@ static void *cma_handler(struct rdma_cm_id *id, struct rdma_cm_event *event) {
             }
             break;
         case RDMA_CM_EVENT_ESTABLISHED:
-            //DEBUG_LOG("Connection Established!\n");
             if (n)
                 conn_handler(n);
             break;
@@ -717,7 +716,7 @@ static void resolve_route_thread(int f) {
 
     int ret;
     for (; j < iteration * num_of_resolves + num_of_resolves; j++) {
-        printf("working on node number %d with thread id = %d\n", j, pthread_self());
+        DEBUG_LOG("working on node number %d with thread id = %lu\n", j, pthread_self());
         if (nodes[j].error)
             continue;
         nodes[j].retries = retries;
@@ -834,7 +833,7 @@ static int run_client(void) {
         start_time(STEP_RESOLVE_ROUTE);
         int j;
         for (j = 0; j < num_of_threads; j++) {
-            thpool_add_work(thpool, resolve_route_thread, j);
+            thpool_add_work(thpool, (void*)resolve_route_thread,  j);
         }
     } else {
         printf("resolving route - single thread\n");
@@ -850,7 +849,7 @@ static int run_client(void) {
                 nodes[i].error = 1;
                 continue;
             }
-            end_perf(&nodes[i], STEP_RESOLVE_ROUTE);
+            //end_perf(&nodes[i], STEP_RESOLVE_ROUTE);
             started[STEP_RESOLVE_ROUTE]++;
         }
     }
@@ -1226,7 +1225,9 @@ int main(int argc, char **argv) {
                 printf("\t[-p port_number]\n");
                 printf("\t[-r retries]\n");
                 printf("\t[-t timeout_ms]\n");
-                printf("\t[-n num_of_threads(server side)]\n");
+                printf("\t[-n num_of_threads]\n");
+                printf("\t\t[server side:number of threads for dealing with client events]\n");
+                printf("\t\t[client side:number of threads for resolving route, please note threads must divided by connection]\n");
                 printf("\t[-d include disconnect test (0|1) (default is 1)]\n");
                 printf("\t[-l listening to ip (server side) \n");
                 printf("\t[--cq create CQ before connect (default is 0)]\n");
