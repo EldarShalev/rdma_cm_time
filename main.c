@@ -703,9 +703,9 @@ static int run_server(void) {
     return ret;
 }
 
-static void resolve_route_thread(int f) {
+static void *resolve_route_thread(void *f) {
     int num_of_resolves;
-    int iteration = f;
+    int iteration = (intptr_t) f;
     if (connections > num_of_threads) {
         num_of_resolves = connections / num_of_threads;
     } else {
@@ -832,7 +832,7 @@ static int run_client(void) {
         start_time(STEP_RESOLVE_ROUTE);
         int j;
         for (j = 0; j < num_of_threads; j++) {
-            thpool_add_work(thpool, (void *) resolve_route_thread, j);
+            thpool_add_work(thpool, (void *) resolve_route_thread, (void *) (intptr_t) j);
         }
         while (connections != completed[STEP_RESOLVE_ROUTE]) sched_yield();
     } else {
@@ -1236,13 +1236,10 @@ int main(int argc, char **argv) {
                 exit(1);
         }
     }
-
-
-    // Init parameters
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
 
-    // QP attributes
+
     init_qp_attr.cap.max_send_wr = 1;
     init_qp_attr.cap.max_recv_wr = 1;
     init_qp_attr.cap.max_send_sge = 1;
@@ -1250,13 +1247,11 @@ int main(int argc, char **argv) {
     init_qp_attr.qp_type = IBV_QPT_RC;
 
 
-    // Create channel
     channel = rdma_create_event_channel();
     if (!channel) {
         perror("Failed to create channel\n");
         exit(1);
     }
-    // Create thredapool for server side handling events
     if (num_of_threads) {
         thpool = thpool_init(num_of_threads);
     }
@@ -1272,15 +1267,11 @@ int main(int argc, char **argv) {
             hints.ai_flags |= RAI_PASSIVE;
             ret = run_server();
         }
-
     }
-
-
     cleanup_nodes();
     rdma_destroy_event_channel(channel);
     if (rai)
         rdma_freeaddrinfo(rai);
-
     show_perf();
     free(nodes);
     return ret;
