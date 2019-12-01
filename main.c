@@ -703,32 +703,32 @@ static int run_server(void) {
     return ret;
 }
 
-static void *resolve_route_thread(void *f) {
-    int num_of_resolves;
+static void *rdma_connect_thread(void *f) {
+    int num_of_connections;
     int iteration = (intptr_t) f;
     if (connections > num_of_threads) {
-        num_of_resolves = connections / num_of_threads;
+        num_of_connections = connections / num_of_threads;
     } else {
-        num_of_resolves = connections;
+        num_of_connections = connections;
     }
-    int j = iteration * num_of_resolves;
+    int j = iteration * num_of_connections;
 
     int ret;
-    for (; j < iteration * num_of_resolves + num_of_resolves; j++) {
-        DEBUG_LOG("working on node number %d with thread id = %lu\n", j, pthread_self());
+    for (; j < iteration * num_of_connections + num_of_connections; j++) {
+        //DEBUG_LOG("working on node number %d with thread id = %lu\n", j, pthread_self());
         if (nodes[j].error)
             continue;
         nodes[j].retries = retries;
-        start_perf(&nodes[j], STEP_RESOLVE_ROUTE);
-        ret = rdma_resolve_route(nodes[j].id, timeout);
+        start_perf(&nodes[j], STEP_CONNECT);
+        ret = rdma_connect(nodes[j].id, &conn_param);
         if (ret) {
             perror("failure resolving route");
             nodes[j].error = 1;
             continue;
         }
-        end_perf(&nodes[j], STEP_RESOLVE_ROUTE);
+        end_perf(&nodes[j], STEP_CONNECT);
         pthread_mutex_lock(&tp_lock);
-        started[STEP_RESOLVE_ROUTE]++;
+        started[STEP_CONNECT]++;
         pthread_mutex_unlock(&tp_lock);
     }
 
@@ -827,34 +827,24 @@ static int run_client(void) {
 
     }
 
-    if (num_of_threads > 1) {
-        printf("resolving route with %d threads \n", num_of_threads);
-        start_time(STEP_RESOLVE_ROUTE);
-        int j;
-        for (j = 0; j < num_of_threads; j++) {
-            thpool_add_work(thpool, (void *) resolve_route_thread, (void *) (intptr_t) j);
+    printf("resolving route\n");
+    start_time(STEP_RESOLVE_ROUTE);
+    for (i = 0; i < connections; i++) {
+        if (nodes[i].error)
+            continue;
+        nodes[i].retries = retries;
+        start_perf(&nodes[i], STEP_RESOLVE_ROUTE);
+        ret = rdma_resolve_route(nodes[i].id, timeout);
+        if (ret) {
+            perror("failure resolving route");
+            nodes[i].error = 1;
+            continue;
         }
-        while (connections != completed[STEP_RESOLVE_ROUTE]) sched_yield();
-    } else {
-        printf("resolving route - single thread\n");
-        start_time(STEP_RESOLVE_ROUTE);
-        for (i = 0; i < connections; i++) {
-            if (nodes[i].error)
-                continue;
-            nodes[i].retries = retries;
-            start_perf(&nodes[i], STEP_RESOLVE_ROUTE);
-            ret = rdma_resolve_route(nodes[i].id, timeout);
-            if (ret) {
-                perror("failure resolving route");
-                nodes[i].error = 1;
-                continue;
-            }
-            started[STEP_RESOLVE_ROUTE]++;
-        }
-        while (started[STEP_RESOLVE_ROUTE] != completed[STEP_RESOLVE_ROUTE]) sched_yield();
+        started[STEP_RESOLVE_ROUTE]++;
     }
-
+    while (started[STEP_RESOLVE_ROUTE] != completed[STEP_RESOLVE_ROUTE]) sched_yield();
     end_time(STEP_RESOLVE_ROUTE);
+
     if (!eqp) {
         printf("creating qp\n");
         start_time(STEP_CREATE_QP);
@@ -877,10 +867,21 @@ static int run_client(void) {
         end_time(STEP_CREATE_QP);
     }
 
+
     printf("connecting\n");
     start_time(STEP_REQ);
     start_time(STEP_CONNECT);
-    if (eqp) {
+
+
+    if (num_of_threads > 1) {
+        printf("Rdma Connect will start with  %d threads \n", num_of_threads);
+        int j;
+        for (j = 0; j < num_of_threads; j++) {
+            thpool_add_work(thpool, (void *) rdma_connect_thread, (void *) (intptr_t) j);
+        }
+        while (connections != completed[STEP_CONNECT]) sched_yield();
+
+    } else if (eqp) {
         struct rdma_conn_param conn_param_test;
         memset(&conn_param_test, 0, sizeof(conn_param_test));
         conn_param_test.responder_resources = 1;
@@ -1226,7 +1227,7 @@ int main(int argc, char **argv) {
                 printf("\t[-t timeout_ms]\n");
                 printf("\t[-n num_of_threads]\n");
                 printf("\t\t[server side:number of threads for dealing with client events]\n");
-                printf("\t\t[client side:number of threads for resolving route, please note threads must divided by connection]\n");
+                printf("\t\t[client side:number of threads for rdma_connect, please note threads must divided by connection]\n");
                 printf("\t[-d include disconnect test (0|1) (default is 1)]\n");
                 printf("\t[-l listening to ip (server side) \n");
                 printf("\t[--cq create CQ before connect (default is 0)]\n");
