@@ -46,6 +46,7 @@
 #include <pthread.h>
 #include <arpa/inet.h>
 #include <limits.h>
+#include <ibprof_api.h>
 
 #include "queue_internal.h"
 #include "threadpool.h"
@@ -68,8 +69,9 @@ static int pd = 0;
 static int eqp = 0;
 static int debug = 0;
 static int modify_eqp = 0;
-static volatile int qpn_counter = 1;
+static volatile uint32_t qpn_counter = 1;
 pthread_mutex_t tp_lock;
+pthread_mutex_t s_tp_lock;
 struct ibv_pd *pd_external_client;
 struct ibv_pd *pd_external_server;
 struct ibv_cq *cq_external_client;
@@ -315,12 +317,11 @@ static void disc_handler(struct node *n) {
 
 
 static void _eqp_req_handler(struct rdma_cm_id *id) {
-    pthread_mutex_lock(&tp_lock);
+    pthread_mutex_lock(&s_tp_lock);
     int ret;
-
-    conn_param.qp_num = qpn_counter;
-    qpn_counter++;
-    DEBUG_LOG("QPN number is %d, thread id = %d\n", conn_param.qp_num, pthread_self());
+    int result = getpid() << 16;
+    conn_param.qp_num = result | qpn_counter++;
+    DEBUG_LOG("QPN number is %d, thread id = %d pid <<16 = %d\n", conn_param.qp_num, pthread_self(), result);
     if (qpn_counter % 1000 == 0) {
         DEBUG_LOG("Sleeping..\n");
         sched_yield();
@@ -329,11 +330,12 @@ static void _eqp_req_handler(struct rdma_cm_id *id) {
         DEBUG_LOG("Sleeping..\n");
         usleep(100);
     }
-    pthread_mutex_unlock(&tp_lock);
+
     ret = rdma_accept(id, &conn_param);
     if (ret) {
         perror("failure accepting");
     }
+    pthread_mutex_unlock(&s_tp_lock);
 }
 
 
@@ -525,6 +527,7 @@ static void cleanup_nodes(void) {
     thpool_destroy(thpool);
     int i;
     pthread_mutex_destroy(&tp_lock);
+    pthread_mutex_destroy(&s_tp_lock);
     printf("destroying id\n");
     start_time(STEP_DESTROY);
     for (i = 0; i < connections; i++) {
@@ -1000,7 +1003,12 @@ int init_eqp_requests() {
         return ret;
     }
 
-
+    if (pthread_mutex_init(&s_tp_lock, NULL) != 0) {
+        printf("\n thread pool mutex init has failed\n");
+        return 1;
+    } else {
+        DEBUG_LOG("server mutex was successfully init \n");
+    }
     // Threadpool of Consumers
     if (num_of_threads > 1) {
         int j;
@@ -1167,10 +1175,12 @@ static struct option longopts[] = {
         {NULL, 0,              NULL, 0}
 };
 
+
 int main(int argc, char **argv) {
     int op, ret;
     int option_index = 0;
-
+    int tmp_id = 1;
+    const char *tmp_str = "eldar";
     while ((op = getopt_long(argc, argv, "s:b:c:p:r:t:n:d:l:cq:pd:eqp:DEBUG:", longopts, &option_index)) != -1) {
         switch (op) {
             case 's':
@@ -1240,7 +1250,7 @@ int main(int argc, char **argv) {
     hints.ai_port_space = RDMA_PS_TCP;
     hints.ai_qp_type = IBV_QPT_RC;
 
-
+//    ibprof_interval_start(tmp_id,tmp_str);
     init_qp_attr.cap.max_send_wr = 1;
     init_qp_attr.cap.max_recv_wr = 1;
     init_qp_attr.cap.max_send_sge = 1;
@@ -1275,5 +1285,6 @@ int main(int argc, char **argv) {
         rdma_freeaddrinfo(rai);
     show_perf();
     free(nodes);
+//    ibprof_interval_end(tmp_id);
     return ret;
 }
